@@ -1,0 +1,91 @@
+[workspace]
+members = [
+    # App
+    "./src/app/bridge"
+]
+resolver = "3"
+
+
+[workspace.dependencies]
+# App
+bridge = { path = "src/app/bridge", default-features = false }
+
+
+[workspace.package]
+# TODO
+version = "0.0.1"
+edition = "2024"
+homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
+repository = "https://github.com/kamu-data/kamu-molecule-bridge"
+authors = ["Kamu Data Inc. <dev@kamu.dev>"]
+readme = "README.md"
+license-file = "LICENSE.txt"
+keywords = ["blockchain"]
+include = ["src/**/*.rs", "Cargo.toml"]
+publish = false
+
+
+[workspace.lints.clippy]
+# clippy::all (clippy::сorrectness, clippy::suspicious, clippy::style, clippy::complexity, clippy::perf)
+new_without_default = "allow"
+too_many_arguments = "allow"
+module_inception = "allow"
+
+# clippy::pedantic
+pedantic = { level = "warn", priority = -1 }
+
+default_trait_access = "allow"
+fn_params_excessive_bools = "allow"
+if_not_else = "allow"
+ignored_unit_patterns = "allow"
+items_after_statements = "allow"
+map_unwrap_or = "allow"
+match_wildcard_for_single_variants = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+needless_raw_string_hashes = "allow"
+return_self_not_must_use = "allow"
+similar_names = "allow"
+single_match_else = "allow"
+struct_excessive_bools = "allow"
+struct_field_names = "allow"
+too_many_lines = "allow"
+unused_self = "allow"
+wildcard_imports = "allow"
+
+
+# clippy::cargo
+cargo = { level = "warn", priority = -1 }
+multiple_crate_versions = { level = "allow", priority = 1 }
+
+
+[profile.dev]
+# Change this to 1 for faster builds that still preserve enough info for backtraces.
+# Use 2 when you need to attach a debugger.
+debug = 1
+
+
+# Emit the line info tables for our crates to produce useful crash reports and backtraces.
+# We don't emit info for dependencies as this significantly increases binary size.
+# See: https://doc.rust-lang.org/cargo/reference/profiles.html#debug
+[profile.release.package]
+# TODO
+
+
+[profile.ci]
+inherits = "dev"
+# CI builds often are closer to from-scratch builds. Incremental adds an extra
+# dependency-tracking overhead and significantly increases the amount of IO and
+# the size of ./target, which make caching less effective
+# See: https://matklad.github.io/2021/09/04/fast-rust-builds.html#CI-Workflow
+incremental = false
+# Line info is enough to get good backtraces in CI - we don't need the
+# full debugging symbols that are only useful when attaching a debugger.
+debug = "line-tables-only"
+
+
+# Use this section to test or apply emergency overrides to dependencies
+# See: https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html
+[patch.crates-io]
