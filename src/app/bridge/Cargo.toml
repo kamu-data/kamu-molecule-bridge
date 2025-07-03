@@ -1,6 +1,6 @@
 [package]
-name = "bridge"
-default-run = "bridge"
+name = "kamu-molecule-bridge"
+default-run = "kamu-molecule-bridge"
 version = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
@@ -26,12 +26,19 @@ default = []
 
 
 [dependencies]
+tokio = { version = "1", default-features = false, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }
+tracing = { version = "0.1", default-features = false, features = [] }
 
 
 [dev-dependencies]
 
 
 [build-dependencies]
+# TODO: migrate to 9 version?
 vergen = { version = "8", features = [
     "build",
     "cargo",
