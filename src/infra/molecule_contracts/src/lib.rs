@@ -1,3 +1,5 @@
+pub mod prelude;
+
 use alloy::sol;
 
 sol!(
