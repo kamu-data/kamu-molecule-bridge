@@ -22,12 +22,15 @@ doctest = false
 
 [features]
 default = []
+testing = ["dep:mockall"]
 
 
 [dependencies]
 alloy = { workspace = true }
 async-trait = { workspace = true }
 color-eyre = { workspace = true }
+
+mockall = { optional = true, workspace = true }
 
 
 [dev-dependencies]

@@ -6,7 +6,7 @@ use multisig::services::MultisigResolver;
 
 use crate::entities::{IpnftEvent, IpnftUid};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IpnftEventProcessingDecision {
     GrantMaintainerAccess {
         ipnft_uid: IpnftUid,
@@ -71,9 +71,6 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
                 }
             }
         }
-
-        // TODO need a test where one of the future multisig owners mints and then
-        //      transfers to their multisig account
 
         let mut result_decisions = Vec::with_capacity(events.len());
 

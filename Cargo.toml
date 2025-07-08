@@ -29,6 +29,8 @@ async-trait = { version = "0.1", default-features = false }
 # TODO: remove extra features
 #       https://github.com/eyre-rs/eyre/tree/master/color-eyre
 color-eyre = { version = "0.6" }
+mockall = { version = "0.13", default-features = false }
+pretty_assertions = { version = "1.0", features = ["std", "unstable"] }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", default-features = false, features = [

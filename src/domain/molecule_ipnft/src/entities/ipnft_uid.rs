@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 use alloy::primitives::{Address, U256};
 
-#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 pub struct IpnftUid {
     pub ipnft_address: Address,
     pub token_id: U256,
