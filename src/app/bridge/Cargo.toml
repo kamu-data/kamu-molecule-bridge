@@ -27,20 +27,17 @@ default = []
 
 [dependencies]
 molecule_contracts = { workspace = true }
+molecule_ipnft = { workspace = true }
+multisig = { workspace = true }
+multisig_safe_wallet = { workspace = true }
 
-# TODO: remove extra features
-alloy = { version = "1" }
-# TODO: remove extra features
-#       https://github.com/eyre-rs/eyre/tree/master/color-eyre
-color-eyre = { version = "0.6" }
+alloy = { workspace = true }
+color-eyre = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+
 confique = { version = "0.3", default-features = false, features = ["yaml"] }
 dotenv = { version = "0.15", default-features = false, features = [] }
-tokio = { version = "1", default-features = false, features = [
-    "rt",
-    "rt-multi-thread",
-    "macros",
-] }
-tracing = { version = "0.1", default-features = false, features = [] }
 
 
 [dev-dependencies]

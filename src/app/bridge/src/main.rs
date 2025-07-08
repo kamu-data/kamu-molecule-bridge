@@ -3,6 +3,7 @@ use alloy::providers::{DynProvider, Provider};
 use color_eyre::eyre;
 use dotenv::dotenv;
 use kamu_molecule_bridge::prelude::*;
+use multisig_safe_wallet::services::SafeWalletApiService;
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
@@ -25,14 +26,16 @@ fn main() -> eyre::Result<()> {
 
 async fn main_async(config: Config) -> eyre::Result<()> {
     let provider = build_rpc_client(&config).await?;
-    let app = App::new(config, provider);
+    let chain_id = provider.get_chain_id().await?;
+    let safe_wallet_api_service = SafeWalletApiService::new_from_chain_id(chain_id)?;
+
+    let app = App::new(config, provider, &safe_wallet_api_service);
 
     app.run().await?;
 
     Ok(())
 }
 
-// TODO: move?
 async fn build_rpc_client(config: &Config) -> eyre::Result<DynProvider> {
     let provider = alloy::providers::ProviderBuilder::new()
         // We do not work with transactions, so we disable all filters ...

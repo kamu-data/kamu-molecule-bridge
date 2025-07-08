@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use alloy::primitives::Address;
 use color_eyre::eyre;
+use multisig::services::MultisigResolver;
 
 use crate::entities::{IpnftEvent, IpnftUid};
 
@@ -18,12 +18,12 @@ pub enum IpnftEventProcessingDecision {
     },
 }
 
-pub struct IpnftEventProcessingStrategy {
-    multisig_resolver: Arc<dyn multisig::services::MultisigResolver>,
+pub struct IpnftEventProcessingStrategy<'a> {
+    multisig_resolver: &'a dyn MultisigResolver,
 }
 
-impl IpnftEventProcessingStrategy {
-    pub fn new(multisig_resolver: Arc<dyn multisig::services::MultisigResolver>) -> Self {
+impl<'a> IpnftEventProcessingStrategy<'a> {
+    pub fn new(multisig_resolver: &'a dyn MultisigResolver) -> Self {
         Self { multisig_resolver }
     }
 
