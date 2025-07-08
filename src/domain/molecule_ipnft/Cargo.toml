@@ -1,5 +1,5 @@
 [package]
-name = "molecule_contracts"
+name = "molecule_ipnft"
 version = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
@@ -25,7 +25,10 @@ default = []
 
 
 [dependencies]
+multisig = { workspace = true }
+
 alloy = { workspace = true }
+color-eyre = { workspace = true }
 
 
 [dev-dependencies]
