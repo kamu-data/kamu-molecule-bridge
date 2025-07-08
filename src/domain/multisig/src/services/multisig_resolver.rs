@@ -6,8 +6,6 @@ use color_eyre::eyre;
 
 #[async_trait]
 pub trait MultisigResolver {
-    async fn get_multisig_owners(
-        &self,
-        potential_safe_wallet_address: Address,
-    ) -> eyre::Result<Option<HashSet<Address>>>;
+    async fn get_multisig_owners(&self, address: Address)
+    -> eyre::Result<Option<HashSet<Address>>>;
 }
