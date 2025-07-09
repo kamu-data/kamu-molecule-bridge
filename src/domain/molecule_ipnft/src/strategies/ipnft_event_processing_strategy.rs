@@ -16,6 +16,14 @@ pub enum IpnftEventProcessingDecision {
         ipnft_uid: IpnftUid,
         address: Address,
     },
+    AddMultisigToIndexing {
+        ipnft_uid: IpnftUid,
+        address: Address,
+    },
+    RemoveMultisigFromIndexing {
+        ipnft_uid: IpnftUid,
+        address: Address,
+    },
 }
 
 pub struct IpnftEventProcessingStrategy<'a> {
@@ -33,8 +41,11 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
     ) -> eyre::Result<Vec<IpnftEventProcessingDecision>> {
         #[derive(Debug, Default)]
         struct IpnftProjection {
-            current_owners: Option<HashSet<Address>>,
+            symbol: Option<String>,
+            current_owner: Option<Address>,
             former_owners: HashSet<Address>,
+            minted: bool,
+            burnt: bool,
         }
 
         let mut ipnft_projections_map = HashMap::<IpnftUid, IpnftProjection>::new();
@@ -44,61 +55,88 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
                 ipnft_projections_map.entry(event.ipnft_uid()).or_default();
 
             match event {
-                IpnftEvent::Minted(minted) => {
-                    let initial_owners = self.get_owners(minted.initial_owner).await?;
-
-                    ipnft_projection.current_owners = Some(initial_owners);
+                IpnftEvent::Minted(event) => {
+                    ipnft_projection.symbol = Some(event.symbol.clone());
+                    ipnft_projection.current_owner = Some(event.initial_owner);
+                    ipnft_projection.minted = true;
                 }
-                IpnftEvent::Transfer(transfer) => {
-                    let previous_owners = self.get_owners(transfer.from).await?;
-                    let new_owners = self.get_owners(transfer.to).await?;
+                IpnftEvent::Transfer(event) => {
+                    // NOTE: If IPNFT was just minted, we haven't granted access yet,
+                    //       so no need to revoke them.
+                    if !ipnft_projection.minted {
+                        ipnft_projection.former_owners.insert(event.from);
+                    }
 
-                    // Add previous owners to former owners
-                    ipnft_projection.former_owners.extend(previous_owners);
-
-                    // Remove new owners from former owners
-                    ipnft_projection
-                        .former_owners
-                        .retain(|former_owner| !new_owners.contains(former_owner));
-
-                    ipnft_projection.current_owners = Some(new_owners);
+                    ipnft_projection.current_owner = Some(event.to);
                 }
-                IpnftEvent::Burnt(burnt) => {
-                    let previous_owners = self.get_owners(burnt.former_owner).await?;
-
-                    ipnft_projection.current_owners = None;
-                    ipnft_projection.former_owners.extend(previous_owners);
+                IpnftEvent::Burnt(event) => {
+                    ipnft_projection.current_owner = None;
+                    ipnft_projection.former_owners.insert(event.former_owner);
+                    ipnft_projection.burnt = true;
                 }
             }
         }
 
-        let mut result_decisions = Vec::with_capacity(events.len());
+        let mut decisions = Vec::with_capacity(events.len());
 
         for (ipnft_uid, projection) in ipnft_projections_map {
-            if let Some(current_owners) = projection.current_owners {
-                result_decisions.extend(current_owners.into_iter().map(|current_owner| {
+            if projection.minted && projection.burnt {
+                // NOTE: IPNFT was burned before we could give access to anyone.
+                //       So there's no need to revoke access from anyone as well.
+                // TODO: Add debug log
+                continue;
+            }
+
+            if let Some(current_owner) = projection.current_owner {
+                let GetOwnersResponse { owners, multisig } = self.get_owners(current_owner).await?;
+
+                decisions.extend(owners.into_iter().map(|current_owner| {
                     IpnftEventProcessingDecision::GrantMaintainerAccess {
                         ipnft_uid,
                         address: current_owner,
                     }
                 }));
+
+                if multisig {
+                    decisions.push(IpnftEventProcessingDecision::AddMultisigToIndexing {
+                        ipnft_uid,
+                        address: current_owner,
+                    });
+                }
             }
 
-            result_decisions.extend(projection.former_owners.into_iter().map(|former_owner| {
-                IpnftEventProcessingDecision::RevokeMaintainerAccess {
-                    ipnft_uid,
-                    address: former_owner,
+            for former_owner in projection.former_owners {
+                let GetOwnersResponse { owners, multisig } = self.get_owners(former_owner).await?;
+
+                decisions.extend(owners.into_iter().map(|former_owner| {
+                    IpnftEventProcessingDecision::RevokeMaintainerAccess {
+                        ipnft_uid,
+                        address: former_owner,
+                    }
+                }));
+
+                if multisig {
+                    decisions.push(IpnftEventProcessingDecision::RemoveMultisigFromIndexing {
+                        ipnft_uid,
+                        address: former_owner,
+                    });
                 }
-            }));
+            }
         }
 
-        Ok(result_decisions)
+        Ok(decisions)
     }
 
-    async fn get_owners(&self, address: Address) -> eyre::Result<HashSet<Address>> {
-        let maybe_multisig_owners = self.multisig_resolver.get_multisig_owners(address).await?;
-        let multisig_owners = maybe_multisig_owners.unwrap_or_else(|| HashSet::from([address]));
+    async fn get_owners(&self, address: Address) -> eyre::Result<GetOwnersResponse> {
+        let maybe_owners = self.multisig_resolver.get_multisig_owners(address).await?;
+        let multisig = maybe_owners.is_some();
+        let owners = maybe_owners.unwrap_or_else(|| HashSet::from([address]));
 
-        Ok(multisig_owners)
+        Ok(GetOwnersResponse { owners, multisig })
     }
+}
+
+struct GetOwnersResponse {
+    owners: HashSet<Address>,
+    multisig: bool,
 }
