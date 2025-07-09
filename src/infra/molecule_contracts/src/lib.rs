@@ -22,3 +22,10 @@ sol!(
     Tokenizer,
     "abis/Tokenizer.json"
 );
+// NOTE: Backward compatibility, based on:
+//       https://github.com/moleculeprotocol/IPNFT/blob/main/subgraph/makeAbis.sh
+sol!(
+    #[sol(rpc)]
+    Synthesizer,
+    "abis/Synthesizer.json"
+);
