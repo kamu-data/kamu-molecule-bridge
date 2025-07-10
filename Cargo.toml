@@ -8,6 +8,8 @@ members = [
     # Infra
     "./src/infra/molecule_contracts",
     "./src/infra/multisig_safe_wallet",
+    # Utils
+    "./src/utils/alloy_ext",
 ]
 resolver = "3"
 
@@ -21,6 +23,8 @@ multisig = { path = "src/domain/multisig", default-features = false }
 # Infra
 molecule_contracts = { path = "src/infra/molecule_contracts", default-features = false }
 multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-features = false }
+# Utils
+alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
 
 # TODO: remove extra features
 #       needed feature: contract
