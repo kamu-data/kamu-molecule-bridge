@@ -37,7 +37,7 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
 
     pub async fn process(
         &self,
-        events: &[IpnftEvent],
+        events: Vec<IpnftEvent>,
     ) -> eyre::Result<Vec<IpnftEventProcessingDecision>> {
         #[derive(Debug, Default)]
         struct IpnftProjection {
@@ -56,7 +56,7 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
 
             match event {
                 IpnftEvent::Minted(event) => {
-                    ipnft_projection.symbol = Some(event.symbol.clone());
+                    ipnft_projection.symbol = Some(event.symbol);
                     ipnft_projection.current_owner = Some(event.initial_owner);
                     ipnft_projection.minted = true;
                 }
@@ -77,7 +77,7 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
             }
         }
 
-        let mut decisions = Vec::with_capacity(events.len());
+        let mut decisions = Vec::new();
 
         for (ipnft_uid, projection) in ipnft_projections_map {
             if projection.minted && projection.burnt {

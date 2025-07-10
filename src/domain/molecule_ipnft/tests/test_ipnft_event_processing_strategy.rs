@@ -35,7 +35,7 @@ async fn test_initial_owner_transfers_to_multisig_they_participate_in() {
         .into(),
     );
 
-    let events = [
+    let events = vec![
         IpnftEvent::Minted(IpnftEventMinted {
             ipnft_uid,
             initial_owner,
@@ -49,7 +49,7 @@ async fn test_initial_owner_transfers_to_multisig_they_participate_in() {
     ];
 
     let mut decisions = IpnftEventProcessingStrategy::new(&mock_multisig_resolver)
-        .process(&events)
+        .process(events)
         .await
         .unwrap();
     decisions.sort_unstable();
@@ -94,7 +94,7 @@ async fn test_no_action_if_ipnft_minted_and_immediately_burnt() {
         .into(),
     );
 
-    let events = [
+    let events = vec![
         IpnftEvent::Minted(IpnftEventMinted {
             ipnft_uid,
             initial_owner,
@@ -112,7 +112,7 @@ async fn test_no_action_if_ipnft_minted_and_immediately_burnt() {
     ];
 
     let mut decisions = IpnftEventProcessingStrategy::new(&mock_multisig_resolver)
-        .process(&events)
+        .process(events)
         .await
         .unwrap();
     decisions.sort_unstable();
