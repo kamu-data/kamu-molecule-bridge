@@ -54,7 +54,7 @@ impl MultisigResolver for SafeWalletApiService {
     async fn get_multisig_owners(
         &self,
         address: Address,
-    ) -> color_eyre::Result<Option<HashSet<Address>>> {
+    ) -> eyre::Result<Option<HashSet<Address>>> {
         // First trying from cache
         {
             let readable_state = self.state.read().await;
