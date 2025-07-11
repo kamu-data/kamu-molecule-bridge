@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::bail;
@@ -6,10 +8,12 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    DataRoomDatasetIdWithOffset,
     KamuNodeApiClient,
     MoleculeAccessLevelEntry,
     MoleculeProjectEntry,
     VersionedFileEntry,
+    VersionedFilesEntriesMap,
 };
 
 pub struct KamuNodeApiClientImpl {
@@ -62,7 +66,6 @@ impl KamuNodeApiClientImpl {
         let status = response.status();
         if status != StatusCode::OK {
             let body = response.text().await?;
-            // TODO: tracing operation_name instead of inlining into an error?
             bail!("Unexpected status code: {status}, body: {body}",);
         }
 
@@ -85,7 +88,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         maybe_offset: Option<u64>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
-        let molecule_projects = self.molecule_projects_dataset_alias.clone();
+        let molecule_projects = &self.molecule_projects_dataset_alias;
         let offset = maybe_offset.unwrap_or(0);
 
         let sql = indoc::formatdoc!(
@@ -110,12 +113,96 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         Ok(molecule_project_entries)
     }
 
-    async fn get_versioned_files_entries_by_ipnft_uid(
+    async fn get_versioned_files_entries_by_data_rooms(
         &self,
-        _ipnft_uid: &str,
-        _project_dataset_head: Option<String>,
-    ) -> eyre::Result<Vec<VersionedFileEntry>> {
-        todo!()
+        data_rooms: Vec<DataRoomDatasetIdWithOffset>,
+    ) -> eyre::Result<VersionedFilesEntriesMap> {
+        // NOTE: Since there might be data rooms with no records
+        //       (and hence no data schema), we need to filter them out
+        //       from the later query.
+        let data_rooms_with_entries = {
+            let data_room_has_entries_queries = data_rooms
+                .iter()
+                .map(|data_room| {
+                    let data_room_dataset_id = &data_room.dataset_id;
+                    indoc::formatdoc!(
+                        r#"
+                        SELECT '{data_room_dataset_id}' AS data_room_dataset_id,
+                                COUNT(*) > 0 AS has_entries
+                        FROM '{data_room_dataset_id}'
+                        "#
+                    )
+                })
+                .collect::<Vec<_>>();
+            let sql = indoc::formatdoc!(
+                r#"
+                SELECT data_room_dataset_id
+                FROM ({subquery})
+                WHERE has_entries == TRUE
+                "#,
+                subquery = data_room_has_entries_queries.join("UNION ALL\n")
+            );
+
+            let data_rooms_with_entries = self
+                .sql_query::<Vec<DataRoomWithEntryDto>>(sql)
+                .await?
+                .into_iter()
+                .map(|dto| dto.data_room_dataset_id)
+                .collect::<HashSet<_>>();
+
+            data_rooms
+                .into_iter()
+                .filter(|data_room| data_rooms_with_entries.contains(&data_room.dataset_id))
+                .collect::<Vec<_>>()
+        };
+
+        let data_room_queries = data_rooms_with_entries
+            .into_iter()
+            .map(|data_room| {
+                let data_room_dataset_id = data_room.dataset_id;
+                let offset = data_room.offset.unwrap_or(0);
+
+                indoc::formatdoc!(
+                    r#"
+                    SELECT '{data_room_dataset_id}' AS data_room_dataset_id,
+                           offset,
+                           op,
+                           ref                      AS versioned_file_dataset_id
+                    FROM '{data_room_dataset_id}'
+                    WHERE offset >= {offset}
+                    "#
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let sql = indoc::formatdoc!(
+            r#"
+            SELECT data_room_dataset_id,
+                   offset,
+                   op,
+                   versioned_file_dataset_id
+            FROM ({subquery})
+            ORDER BY data_room_dataset_id, offset
+            "#,
+            subquery = data_room_queries.join("UNION ALL\n")
+        );
+
+        let versioned_file_entry_dtos = self.sql_query::<Vec<VersionedFileEntryDto>>(sql).await?;
+
+        let mut versioned_files_entries_map = VersionedFilesEntriesMap::new();
+        for dto in versioned_file_entry_dtos {
+            let data_room_entries = versioned_files_entries_map
+                .entry(dto.data_room_dataset_id)
+                .or_default();
+
+            data_room_entries.push(VersionedFileEntry {
+                offset: dto.offset,
+                op: dto.op.try_into()?,
+                dataset_id: dto.versioned_file_dataset_id,
+            });
+        }
+
+        Ok(versioned_files_entries_map)
     }
 
     async fn get_latest_molecule_access_levels_by_dataset_ids(
@@ -156,4 +243,17 @@ impl TryFrom<MoleculeProjectsEntryDto> for MoleculeProjectEntry {
             announcements_dataset_id: v.announcements_dataset_id,
         })
     }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct DataRoomWithEntryDto {
+    data_room_dataset_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct VersionedFileEntryDto {
+    data_room_dataset_id: String,
+    offset: u64,
+    op: u8,
+    versioned_file_dataset_id: String,
 }

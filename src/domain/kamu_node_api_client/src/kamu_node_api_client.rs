@@ -1,6 +1,11 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::bail;
+
+pub type VersionedFilesEntriesMap =
+    HashMap</* data_room_dataset_id */ String, Vec<VersionedFileEntry>>;
 
 #[cfg_attr(any(feature = "testing", test), mockall::automock)]
 #[async_trait]
@@ -10,11 +15,10 @@ pub trait KamuNodeApiClient {
         maybe_offset: Option<u64>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>>;
 
-    async fn get_versioned_files_entries_by_ipnft_uid(
+    async fn get_versioned_files_entries_by_data_rooms(
         &self,
-        ipnft_uid: &str,
-        project_dataset_head: Option<String>,
-    ) -> eyre::Result<Vec<VersionedFileEntry>>;
+        data_rooms: Vec<DataRoomDatasetIdWithOffset>,
+    ) -> eyre::Result<VersionedFilesEntriesMap>;
 
     async fn get_latest_molecule_access_levels_by_dataset_ids(
         &self,
@@ -34,9 +38,9 @@ pub struct MoleculeProjectEntry {
 
 #[derive(Debug)]
 pub struct VersionedFileEntry {
-    pub ipnft_uid: String,
+    pub offset: u64,
+    pub op: OperationType,
     pub dataset_id: String,
-    pub op: String,
 }
 
 #[derive(Debug)]
@@ -68,4 +72,10 @@ impl TryFrom<u8> for OperationType {
         };
         Ok(op)
     }
+}
+
+#[derive(Debug)]
+pub struct DataRoomDatasetIdWithOffset {
+    pub dataset_id: String,
+    pub offset: Option<u64>,
 }

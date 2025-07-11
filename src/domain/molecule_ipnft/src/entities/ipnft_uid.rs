@@ -13,3 +13,5 @@ impl Display for IpnftUid {
         write!(f, "{}_{}", self.ipnft_address, self.token_id)
     }
 }
+
+// TODO parse string?
