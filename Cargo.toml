@@ -3,6 +3,7 @@ members = [
     # App
     "./src/app/bridge",
     # Domain
+    "./src/domain/kamu_node_api_client",
     "./src/domain/molecule_ipnft",
     "./src/domain/multisig",
     # Infra
@@ -21,6 +22,7 @@ bridge = { path = "src/app/bridge", default-features = false }
 molecule_ipnft = { path = "src/domain/molecule_ipnft", default-features = false }
 multisig = { path = "src/domain/multisig", default-features = false }
 # Infra
+kamu_node_api_client = { path = "src/infra/kamu_node_api_client", default-features = false }
 molecule_contracts = { path = "src/infra/molecule_contracts", default-features = false }
 multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-features = false }
 # Utils
