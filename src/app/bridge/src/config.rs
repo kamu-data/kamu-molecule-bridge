@@ -1,7 +1,17 @@
 use alloy::primitives::Address;
 
+// TODO: migrate to figment
+//       - use https://github.com/Keats/validator for field validation
 #[derive(confique::Config, Debug)]
 pub struct Config {
+    #[config(env = "KAMU_NODE_GQL_API_ENDPOINT")]
+    pub kamu_node_gql_api_endpoint: String,
+    #[config(env = "KAMU_NODE_TOKEN")]
+    pub kamu_node_token: String,
+
+    #[config(env = "MOLECULE_PROJECTS_DATASET_ALIAS")]
+    pub molecule_projects_dataset_alias: String,
+
     #[config(env = "RPC_URL")]
     pub rpc_url: String,
 
