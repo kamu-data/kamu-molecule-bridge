@@ -513,7 +513,7 @@ dependencies = [
  "alloy-json-abi",
  "alloy-sol-macro-input",
  "const-hex",
- "heck",
+ "heck 0.5.0",
  "indexmap 2.10.0",
  "proc-macro-error2",
  "proc-macro2",
@@ -532,7 +532,7 @@ dependencies = [
  "alloy-json-abi",
  "const-hex",
  "dunce",
- "heck",
+ "heck 0.5.0",
  "macro-string",
  "proc-macro2",
  "quote",
@@ -628,6 +628,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "alloy_ext"
+version = "0.0.1"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "color-eyre",
 ]
 
 [[package]]
@@ -1079,6 +1088,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "combine"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
+dependencies = [
+ "bytes",
+ "memchr",
+]
+
+[[package]]
 name = "confique"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1095,7 +1114,7 @@ version = "0.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df20583fae327154743356c4896906bda1aa9b7df30c5aed73a54cf27fede9de"
 dependencies = [
- "heck",
+ "heck 0.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.104",
@@ -1696,6 +1715,64 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
+name = "graphql-introspection-query"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f2a4732cf5140bd6c082434494f785a19cfb566ab07d1382c3671f5812fed6d"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "graphql-parser"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a818c0d883d7c0801df27be910917750932be279c7bc82dc541b8769425f409"
+dependencies = [
+ "combine",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "graphql_client"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a50cfdc7f34b7f01909d55c2dcb71d4c13cbcbb4a1605d6c8bd760d654c1144b"
+dependencies = [
+ "graphql_query_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "graphql_client_codegen"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e27ed0c2cf0c0cc52c6bcf3b45c907f433015e580879d14005386251842fb0a"
+dependencies = [
+ "graphql-introspection-query",
+ "graphql-parser",
+ "heck 0.4.1",
+ "lazy_static",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "graphql_query_derive"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83febfa838f898cfa73dfaa7a8eb69ff3409021ac06ee94cfb3d622f6eeb1a97"
+dependencies = [
+ "graphql_client_codegen",
+ "proc-macro2",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1748,6 +1825,12 @@ dependencies = [
  "foldhash",
  "serde",
 ]
+
+[[package]]
+name = "heck"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "heck"
@@ -2092,6 +2175,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "indoc"
+version = "2.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4c7245a08504955605670dbf141fceab975f15ca21570696aebe9d2e71576bd"
+
+[[package]]
 name = "io-uring"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2171,9 +2260,11 @@ name = "kamu-molecule-bridge"
 version = "0.0.1"
 dependencies = [
  "alloy",
+ "alloy_ext",
  "color-eyre",
  "confique",
  "dotenv",
+ "kamu_node_api_client",
  "molecule_contracts",
  "molecule_ipnft",
  "multisig",
@@ -2181,6 +2272,20 @@ dependencies = [
  "serde",
  "tokio",
  "vergen",
+]
+
+[[package]]
+name = "kamu_node_api_client"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "color-eyre",
+ "graphql_client",
+ "indoc",
+ "mockall",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3507,7 +3612,7 @@ version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c77a8c5abcaf0f9ce05d62342b7d298c346515365c36b673df4ebe3ced01fde8"
 dependencies = [
- "heck",
+ "heck 0.5.0",
  "proc-macro2",
  "quote",
  "rustversion",

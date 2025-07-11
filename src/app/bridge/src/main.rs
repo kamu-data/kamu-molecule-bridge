@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use alloy::providers::fillers::ChainIdFiller;
 use alloy::providers::{DynProvider, Provider};
 use color_eyre::eyre;
 use dotenv::dotenv;
 use kamu_molecule_bridge::prelude::*;
+use kamu_node_api_client::KamuNodeApiClientImpl;
 use multisig_safe_wallet::services::SafeWalletApiService;
 
 fn main() -> eyre::Result<()> {
@@ -29,7 +32,18 @@ async fn main_async(config: Config) -> eyre::Result<()> {
     let chain_id = provider.get_chain_id().await?;
     let safe_wallet_api_service = SafeWalletApiService::new_from_chain_id(chain_id)?;
 
-    let app = App::new(config, provider, &safe_wallet_api_service);
+    let kamu_node_api_client = Arc::new(KamuNodeApiClientImpl::new(
+        config.kamu_node_gql_api_endpoint.clone(),
+        config.kamu_node_token.clone(),
+        config.molecule_projects_dataset_alias.clone(),
+    ));
+
+    let app = App::new(
+        config,
+        provider,
+        &safe_wallet_api_service,
+        kamu_node_api_client,
+    );
 
     app.run().await?;
 

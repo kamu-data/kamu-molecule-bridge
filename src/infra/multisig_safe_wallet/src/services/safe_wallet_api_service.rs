@@ -76,8 +76,8 @@ impl MultisigResolver for SafeWalletApiService {
                 // Continue processing
             }
             StatusCode::NOT_FOUND => return Ok(None),
-            unexpected_status_code => bail!("Unexpected status code: {unexpected_status_code}"),
-        };
+            unexpected => bail!("Unexpected status code: {unexpected}"),
+        }
 
         // We don't need the full structure definition
         #[derive(Debug, Serialize, Deserialize)]

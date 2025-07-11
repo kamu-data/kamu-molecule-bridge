@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::bail;
-use graphql_client::GraphQLQuery;
+use graphql_client::{GraphQLQuery, Response};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -16,8 +16,8 @@ use crate::{
 pub struct KamuNodeApiClientImpl {
     gql_api_endpoint: String,
     token: String,
-    http_client: reqwest::Client,
     molecule_projects_dataset_alias: String,
+    http_client: reqwest::Client,
 }
 
 impl KamuNodeApiClientImpl {
@@ -51,14 +51,22 @@ impl KamuNodeApiClientImpl {
             bail!("[{operation_name}]: Unexpected status code: {status}, body: {body}",);
         }
 
-        let response_data = response.json().await?;
-        Ok(response_data)
+        let response: Response<Q::ResponseData> = response.json().await?;
+
+        if let Some(data) = response.data {
+            Ok(data)
+        } else if let Some(errors) = response.errors {
+            let error_message = errors.iter().map(ToString::to_string).collect::<Vec<_>>();
+            bail!("Errors: {error_message:?}")
+        } else {
+            unreachable!()
+        }
     }
 }
 
 #[async_trait]
 impl KamuNodeApiClient for KamuNodeApiClientImpl {
-    async fn get_molecule_projects_entries(
+    async fn get_molecule_project_entries(
         &self,
         maybe_offset: Option<u64>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
@@ -78,8 +86,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             "#
         );
 
-        // let a = molecule_projects_view::OPERATION_NAME
-
         let response = self
             .gql_api_call::<MoleculeProjectsView>(
                 molecule_projects_view::OPERATION_NAME,
@@ -93,13 +99,13 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             }
         };
 
-        let molecule_projects_entries: Vec<MoleculeProjectsEntryDto> =
-            serde_json::from_str(&query_result.data.content)?;
-
-        Ok(molecule_projects_entries
+        let dtos: Vec<MoleculeProjectsEntryDto> = serde_json::from_str(&query_result.data.content)?;
+        let molecule_project_entries = dtos
             .into_iter()
-            .map(Into::into)
-            .collect())
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(molecule_project_entries)
     }
 
     async fn get_versioned_files_entries_by_ipnft_uid(
@@ -130,20 +136,22 @@ struct MoleculeProjectsView;
 #[derive(Debug, Deserialize, Serialize)]
 struct MoleculeProjectsEntryDto {
     offset: u64,
-    op: String,
+    op: u8,
     ipnft_uid: String,
     data_room_dataset_id: String,
     announcements_dataset_id: String,
 }
 
-impl From<MoleculeProjectsEntryDto> for MoleculeProjectEntry {
-    fn from(v: MoleculeProjectsEntryDto) -> Self {
-        Self {
+impl TryFrom<MoleculeProjectsEntryDto> for MoleculeProjectEntry {
+    type Error = eyre::Error;
+
+    fn try_from(v: MoleculeProjectsEntryDto) -> Result<Self, Self::Error> {
+        Ok(Self {
             offset: v.offset,
-            op: v.op,
+            op: v.op.try_into()?,
             ipnft_uid: v.ipnft_uid,
             data_room_dataset_id: v.data_room_dataset_id,
             announcements_dataset_id: v.announcements_dataset_id,
-        }
+        })
     }
 }
