@@ -32,6 +32,7 @@ pub struct MoleculeProjectEntry {
     pub op: OperationType,
     // TODO: use type?
     pub ipnft_uid: String,
+    pub project_account_id: String,
     pub data_room_dataset_id: String,
     pub announcements_dataset_id: String,
 }

@@ -95,6 +95,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             r#"
             SELECT offset,
                    op,
+                   account_id AS project_account_id,
                    ipnft_uid,
                    data_room_dataset_id,
                    announcements_dataset_id
@@ -227,6 +228,7 @@ struct MoleculeProjectsEntryDto {
     offset: u64,
     op: u8,
     ipnft_uid: String,
+    project_account_id: String,
     data_room_dataset_id: String,
     announcements_dataset_id: String,
 }
@@ -239,6 +241,7 @@ impl TryFrom<MoleculeProjectsEntryDto> for MoleculeProjectEntry {
             offset: v.offset,
             op: v.op.try_into()?,
             ipnft_uid: v.ipnft_uid,
+            project_account_id: v.project_account_id,
             data_room_dataset_id: v.data_room_dataset_id,
             announcements_dataset_id: v.announcements_dataset_id,
         })
