@@ -1,4 +1,4 @@
-query MoleculeProjectsView($sql: String!) {
+query SqlQuery($sql: String!) {
   data {
     query(query: $sql, queryDialect: SQL_DATA_FUSION, dataFormat: JSON_AOS) {
       __typename

@@ -5,7 +5,6 @@ use graphql_client::{GraphQLQuery, Response};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::kamu_node_api_client_impl::molecule_projects_view::MoleculeProjectsViewDataQuery;
 use crate::{
     KamuNodeApiClient,
     MoleculeAccessLevelEntry,
@@ -30,9 +29,25 @@ impl KamuNodeApiClientImpl {
         }
     }
 
+    async fn sql_query<T: for<'de> Deserialize<'de>>(&self, sql: String) -> eyre::Result<T> {
+        use crate::kamu_node_api_client_impl::sql_query::SqlQueryDataQuery;
+
+        let response = self
+            .gql_api_call::<SqlQuery>(sql_query::Variables { sql })
+            .await?;
+        let raw_query_result = match response.data.query {
+            SqlQueryDataQuery::DataQueryResultSuccess(query_result) => query_result,
+            SqlQueryDataQuery::DataQueryResultError(e) => {
+                bail!("Query failed with error: {e:#?}")
+            }
+        };
+        let query_result: T = serde_json::from_str(&raw_query_result.data.content)?;
+
+        Ok(query_result)
+    }
+
     async fn gql_api_call<Q: GraphQLQuery>(
         &self,
-        operation_name: &str,
         variables: Q::Variables,
     ) -> eyre::Result<Q::ResponseData> {
         let body = Q::build_query(variables);
@@ -48,7 +63,7 @@ impl KamuNodeApiClientImpl {
         if status != StatusCode::OK {
             let body = response.text().await?;
             // TODO: tracing operation_name instead of inlining into an error?
-            bail!("[{operation_name}]: Unexpected status code: {status}, body: {body}",);
+            bail!("Unexpected status code: {status}, body: {body}",);
         }
 
         let response: Response<Q::ResponseData> = response.json().await?;
@@ -86,21 +101,8 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             "#
         );
 
-        let response = self
-            .gql_api_call::<MoleculeProjectsView>(
-                molecule_projects_view::OPERATION_NAME,
-                molecule_projects_view::Variables { sql },
-            )
-            .await?;
-        let query_result = match response.data.query {
-            MoleculeProjectsViewDataQuery::DataQueryResultSuccess(query_result) => query_result,
-            MoleculeProjectsViewDataQuery::DataQueryResultError(e) => {
-                bail!("Query failed with error: {e:#?}")
-            }
-        };
-
-        let dtos: Vec<MoleculeProjectsEntryDto> = serde_json::from_str(&query_result.data.content)?;
-        let molecule_project_entries = dtos
+        let response = self.sql_query::<Vec<MoleculeProjectsEntryDto>>(sql).await?;
+        let molecule_project_entries = response
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
@@ -128,10 +130,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "gql/schema.graphql",
-    query_path = "gql/molecule_projects_view.graphql",
+    query_path = "gql/sql_query.graphql",
     response_derives = "Debug"
 )]
-struct MoleculeProjectsView;
+struct SqlQuery;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct MoleculeProjectsEntryDto {
