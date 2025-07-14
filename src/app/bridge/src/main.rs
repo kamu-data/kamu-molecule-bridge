@@ -9,6 +9,14 @@ use kamu_node_api_client::KamuNodeApiClientImpl;
 use multisig_safe_wallet::services::SafeWalletApiService;
 
 fn main() -> eyre::Result<()> {
+    // TODO: Currently we are compiling `rustls` with both `ring` and `aws-cl-rs`
+    // backends and since v0.23 `rustls` requires to disambiguate between which
+    // one to use. Eventually we should unify all dependencies around the same
+    // backend, but a number of them don't yet expose the necessary feature flags.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Could not install default TLS provider");
+
     color_eyre::install()?;
 
     // TODO: Tracing initialization
