@@ -2,12 +2,6 @@ mutation CreateWalletAccounts($newWalletAccounts: [DidPkh!]!) {
   accounts {
     createWalletAccounts(walletAddresses: $newWalletAccounts) {
       __typename
-      ... on CreateWalletAccountsSuccess {
-        message
-        accounts {
-          id
-        }
-      }
     }
   }
 }

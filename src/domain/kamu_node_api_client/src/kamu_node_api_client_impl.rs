@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
 use crate::{
+    AccountDatasetRelationOperation,
     DataRoomDatasetIdWithOffset,
+    DatasetAccessRole,
+    DatasetID,
+    DatasetRoleOperation,
     KamuNodeApiClient,
     MoleculeAccessLevel,
     MoleculeAccessLevelEntryMap,
@@ -35,7 +39,7 @@ impl KamuNodeApiClientImpl {
     }
 
     async fn sql_query<T: for<'de> Deserialize<'de>>(&self, sql: String) -> eyre::Result<T> {
-        use crate::kamu_node_api_client_impl::sql_query::SqlQueryDataQuery;
+        use sql_query::SqlQueryDataQuery;
 
         let response = self
             .gql_api_call::<SqlQuery>(sql_query::Variables { sql })
@@ -262,25 +266,29 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     }
 
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
-        use crate::kamu_node_api_client_impl::create_wallet_accounts::CreateWalletAccountsAccountsCreateWalletAccounts;
+        self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
+            new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
+        })
+        .await?;
 
-        let response = self
-            .gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
-                new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
-            })
-            .await?;
+        Ok(())
+    }
 
-        match response.accounts.create_wallet_accounts {
-            CreateWalletAccountsAccountsCreateWalletAccounts::CreateWalletAccountsSuccess(_) => {
-                /* all good */
-            }
-        }
+    async fn apply_account_dataset_relations(
+        &self,
+        operations: Vec<AccountDatasetRelationOperation>,
+    ) -> color_eyre::Result<()> {
+        let operations = operations.into_iter().map(Into::into).collect();
+
+        self.gql_api_call::<ApplyAccountDatasetRelations>(
+            apply_account_dataset_relations::Variables { operations },
+        )
+        .await?;
 
         Ok(())
     }
 }
 
-// TODO: Add build.rs: rebuild if *.graphql files changed
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "gql/schema.graphql",
@@ -340,5 +348,41 @@ impl TryFrom<u8> for OperationType {
             unexpected => bail!("Unexpected operation type: {unexpected}"),
         };
         Ok(op)
+    }
+}
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "gql/schema.graphql",
+    query_path = "gql/apply_account_dataset_relations.graphql",
+    response_derives = "Debug"
+)]
+struct ApplyAccountDatasetRelations;
+
+impl From<AccountDatasetRelationOperation>
+    for apply_account_dataset_relations::AccountDatasetRelationOperation
+{
+    fn from(v: AccountDatasetRelationOperation) -> Self {
+        use apply_account_dataset_relations as codegen;
+
+        Self {
+            account_id: v.account_id,
+            operation: match v.operation {
+                DatasetRoleOperation::Set(role) => {
+                    codegen::DatasetRoleOperation::Set(codegen::DatasetRoleSetOperation {
+                        role: match role {
+                            DatasetAccessRole::Reader => codegen::DatasetAccessRole::READER,
+                            DatasetAccessRole::Maintainer => codegen::DatasetAccessRole::MAINTAINER,
+                        },
+                    })
+                }
+                DatasetRoleOperation::Unset => {
+                    codegen::DatasetRoleOperation::Unset(codegen::DatasetRoleUnsetOperation {
+                        dummy: false,
+                    })
+                }
+            },
+            dataset_id: v.dataset_id,
+        }
     }
 }

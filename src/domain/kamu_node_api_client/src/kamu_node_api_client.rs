@@ -25,6 +25,11 @@ pub trait KamuNodeApiClient {
     ) -> eyre::Result<MoleculeAccessLevelEntryMap>;
 
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> eyre::Result<()>;
+
+    async fn apply_account_dataset_relations(
+        &self,
+        operations: Vec<AccountDatasetRelationOperation>,
+    ) -> eyre::Result<()>;
 }
 
 pub type DatasetID = String;
@@ -69,4 +74,23 @@ pub enum MoleculeAccessLevel {
 pub struct DataRoomDatasetIdWithOffset {
     pub dataset_id: DatasetID,
     pub offset: Option<u64>,
+}
+
+#[derive(Debug)]
+pub struct AccountDatasetRelationOperation {
+    pub account_id: DatasetID,
+    pub operation: DatasetRoleOperation,
+    pub dataset_id: AccountID,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum DatasetRoleOperation {
+    Set(DatasetAccessRole),
+    Unset,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum DatasetAccessRole {
+    Reader,
+    Maintainer,
 }
