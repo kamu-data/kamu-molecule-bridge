@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::bail;
-
-pub type VersionedFilesEntriesMap =
-    HashMap</* data_room_dataset_id */ String, Vec<VersionedFileEntry>>;
+use serde::{Deserialize, Serialize};
 
 #[cfg_attr(any(feature = "testing", test), mockall::automock)]
 #[async_trait]
@@ -22,8 +20,8 @@ pub trait KamuNodeApiClient {
 
     async fn get_latest_molecule_access_levels_by_dataset_ids(
         &self,
-        dataset_ids: Vec<String>,
-    ) -> eyre::Result<Vec<MoleculeAccessLevelEntry>>;
+        versioned_file_dataset_ids: Vec<String>,
+    ) -> eyre::Result<MoleculeAccessLevelEntryMap>;
 }
 
 #[derive(Debug)]
@@ -37,6 +35,9 @@ pub struct MoleculeProjectEntry {
     pub announcements_dataset_id: String,
 }
 
+pub type VersionedFilesEntriesMap =
+    HashMap</* data_room_dataset_id */ String, Vec<VersionedFileEntry>>;
+
 #[derive(Debug)]
 pub struct VersionedFileEntry {
     pub offset: u64,
@@ -44,11 +45,14 @@ pub struct VersionedFileEntry {
     pub dataset_id: String,
 }
 
-#[derive(Debug)]
-pub struct MoleculeAccessLevelEntry {
-    pub dataset_id: String,
-    // TODO: extract type
-    pub access_level: String,
+pub type MoleculeAccessLevelEntryMap = HashMap</* dataset_id */ String, MoleculeAccessLevel>;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MoleculeAccessLevel {
+    Public,
+    IptHolders,
+    // TODO: add other values
 }
 
 #[repr(u8)]

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DataRoomDatasetIdWithOffset,
     KamuNodeApiClient,
-    MoleculeAccessLevelEntry,
+    MoleculeAccessLevel,
+    MoleculeAccessLevelEntryMap,
     MoleculeProjectEntry,
     VersionedFileEntry,
     VersionedFilesEntriesMap,
@@ -208,9 +209,39 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
     async fn get_latest_molecule_access_levels_by_dataset_ids(
         &self,
-        _dataset_ids: Vec<String>,
-    ) -> eyre::Result<Vec<MoleculeAccessLevelEntry>> {
-        todo!()
+        versioned_file_dataset_ids: Vec<String>,
+    ) -> eyre::Result<MoleculeAccessLevelEntryMap> {
+        let molecule_access_level_queries = versioned_file_dataset_ids
+            .iter()
+            .map(|versioned_file_dataset_id| {
+                indoc::formatdoc!(
+                    r#"
+                    (SELECT '{versioned_file_dataset_id}' as versioned_file_dataset_id,
+                            molecule_access_level
+                     FROM '{versioned_file_dataset_id}'
+                     ORDER BY offset DESC)
+                    "#
+                )
+            })
+            .collect::<Vec<_>>();
+        let sql = indoc::formatdoc!(
+            r#"
+            SELECT versioned_file_dataset_id,
+                   molecule_access_level
+            FROM ({subquery})
+            "#,
+            subquery = molecule_access_level_queries.join("UNION ALL\n")
+        );
+
+        let dtos = self
+            .sql_query::<Vec<VersionedFileMoleculeAccessLevelDto>>(sql)
+            .await?;
+        let map = dtos
+            .into_iter()
+            .map(|dto| (dto.versioned_file_dataset_id, dto.molecule_access_level))
+            .collect();
+
+        Ok(map)
     }
 }
 
@@ -259,4 +290,10 @@ struct VersionedFileEntryDto {
     offset: u64,
     op: u8,
     versioned_file_dataset_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct VersionedFileMoleculeAccessLevelDto {
+    versioned_file_dataset_id: String,
+    molecule_access_level: MoleculeAccessLevel,
 }

@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 
 #[derive(Debug)]
 pub enum TokenizerEvent {
@@ -7,7 +7,8 @@ pub enum TokenizerEvent {
 
 #[derive(Debug)]
 pub struct TokenizerEventTokenCreated {
-    pub token_contract: Address,
     pub symbol: String,
+    pub token_id: U256,
+    pub token_contract: Address,
     pub block_number: u64,
 }
