@@ -2278,11 +2278,13 @@ dependencies = [
 name = "kamu_node_api_client"
 version = "0.0.1"
 dependencies = [
+ "alloy",
  "async-trait",
  "color-eyre",
  "graphql_client",
  "indoc",
  "mockall",
+ "pretty_assertions",
  "reqwest",
  "serde",
  "serde_json",
