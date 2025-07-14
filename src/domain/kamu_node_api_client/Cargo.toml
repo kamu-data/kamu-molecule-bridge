@@ -26,6 +26,8 @@ testing = ["dep:mockall"]
 
 
 [dependencies]
+molecule_ipnft = { workspace = true }
+
 alloy = { workspace = true }
 async-trait = { workspace = true }
 # TODO: use just eyre and color-eyre only in main.rs

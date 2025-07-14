@@ -1,9 +1,11 @@
 use std::collections::HashSet;
+use std::str::FromStr;
 
 use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::bail;
 use graphql_client::{GraphQLQuery, Response};
+use molecule_ipnft::entities::IpnftUid;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -110,9 +112,14 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             "#
         );
 
-        let dtos = self.sql_query::<Vec<MoleculeProjectEntry>>(sql).await?;
+        let dtos = self.sql_query::<Vec<MoleculeProjectEntryDto>>(sql).await?;
+        let project_entries = dtos
+            .into_iter()
+            .map(TryInto::try_into)
+            // Vec<Result<T, E>> --> Result<Vec<T>, E>
+            .collect::<Result<Vec<MoleculeProjectEntry>, _>>()?;
 
-        Ok(dtos)
+        Ok(project_entries)
     }
 
     async fn get_versioned_files_entries_by_data_rooms(
@@ -296,6 +303,29 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     response_derives = "Debug"
 )]
 struct SqlQuery;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MoleculeProjectEntryDto {
+    pub offset: u64,
+    pub ipnft_uid: String,
+    pub project_account_id: crate::AccountID,
+    pub data_room_dataset_id: DatasetID,
+    pub announcements_dataset_id: DatasetID,
+}
+
+impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
+    type Error = eyre::Error;
+
+    fn try_into(self) -> Result<MoleculeProjectEntry, Self::Error> {
+        Ok(MoleculeProjectEntry {
+            offset: self.offset,
+            ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
+            project_account_id: self.project_account_id,
+            data_room_dataset_id: self.data_room_dataset_id,
+            announcements_dataset_id: self.announcements_dataset_id,
+        })
+    }
+}
 
 // NOTE: GQL scalars require additional declarations
 type DidPkh = String;

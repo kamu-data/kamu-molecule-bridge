@@ -2284,6 +2284,7 @@ dependencies = [
  "graphql_client",
  "indoc",
  "mockall",
+ "molecule_ipnft",
  "pretty_assertions",
  "reqwest",
  "serde",

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use color_eyre::eyre;
+use molecule_ipnft::entities::IpnftUid;
 use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
@@ -35,11 +36,10 @@ pub trait KamuNodeApiClient {
 pub type DatasetID = String;
 pub type AccountID = String;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct MoleculeProjectEntry {
     pub offset: u64,
-    // TODO: use type?
-    pub ipnft_uid: String,
+    pub ipnft_uid: IpnftUid,
     pub project_account_id: AccountID,
     pub data_room_dataset_id: DatasetID,
     pub announcements_dataset_id: DatasetID,
