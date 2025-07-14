@@ -1,0 +1,17 @@
+{{- if .Values.app.metrics.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kamu-molecule-bridge.fullname" . }}
+  labels:
+    {{- include "kamu-molecule-bridge.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kamu-molecule-bridge.selectorLabels" . | nindent 6 }}
+  endpoints:
+  - interval: 15s
+    path: /system/metrics
+    port: http
+    scheme: http
+{{- end }}

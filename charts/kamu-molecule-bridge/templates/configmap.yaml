@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kamu-molecule-bridge.fullname" . }}-{{ template "kamu-molecule-bridge.config.sha" . }}
+  labels:
+    {{- include "kamu-molecule-bridge.labels" . | nindent 4 }}
+data:
+  {{- include "kamu-molecule-bridge.config.yaml" . | nindent 2 }}
