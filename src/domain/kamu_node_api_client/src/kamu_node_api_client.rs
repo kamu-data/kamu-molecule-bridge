@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use color_eyre::eyre;
 use serde::{Deserialize, Serialize};
 
+use crate::did_phk::DidPhk;
+
 #[cfg_attr(any(feature = "testing", test), mockall::automock)]
 #[async_trait]
 pub trait KamuNodeApiClient {
@@ -21,6 +23,8 @@ pub trait KamuNodeApiClient {
         &self,
         versioned_file_dataset_ids: Vec<String>,
     ) -> eyre::Result<MoleculeAccessLevelEntryMap>;
+
+    async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> eyre::Result<()>;
 }
 
 pub type DatasetID = String;

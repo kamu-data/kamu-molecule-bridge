@@ -7,6 +7,7 @@ use graphql_client::{GraphQLQuery, Response};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
+use crate::did_phk::DidPhk;
 use crate::{
     DataRoomDatasetIdWithOffset,
     KamuNodeApiClient,
@@ -259,6 +260,24 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
         Ok(map)
     }
+
+    async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
+        use crate::kamu_node_api_client_impl::create_wallet_accounts::CreateWalletAccountsAccountsCreateWalletAccounts;
+
+        let response = self
+            .gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
+                new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
+            })
+            .await?;
+
+        match response.accounts.create_wallet_accounts {
+            CreateWalletAccountsAccountsCreateWalletAccounts::CreateWalletAccountsSuccess(_) => {
+                /* all good */
+            }
+        }
+
+        Ok(())
+    }
 }
 
 // TODO: Add build.rs: rebuild if *.graphql files changed
@@ -269,6 +288,17 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     response_derives = "Debug"
 )]
 struct SqlQuery;
+
+// NOTE: GQL scalars require additional declarations
+type DidPkh = String;
+type AccountID = String;
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "gql/schema.graphql",
+    query_path = "gql/create_wallet_accounts.graphql",
+    response_derives = "Debug"
+)]
+struct CreateWalletAccounts;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct DataRoomWithEntryDto {

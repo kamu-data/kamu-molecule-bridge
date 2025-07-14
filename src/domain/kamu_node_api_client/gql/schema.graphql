@@ -64,6 +64,19 @@ type Account {
 	Access to the flow configurations of this account
 	"""
 	flows: AccountFlows!
+	"""
+	Access to the flow configurations of this account
+	"""
+	accessTokens: AccountAccessTokens!
+}
+
+type AccountAccessTokens {
+	listAccessTokens(page: Int, perPage: Int): AccessTokenConnection!
+}
+
+type AccountAccessTokensMut {
+	createAccessToken(tokenName: String!): CreateTokenResult!
+	revokeAccessToken(tokenId: AccessTokenID!): RevokeResult!
 }
 
 type AccountConnection {
@@ -80,6 +93,12 @@ type AccountConnection {
 	"""
 	pageInfo: PageBasedInfo!
 	edges: [AccountEdge!]!
+}
+
+input AccountDatasetRelationOperation {
+	accountId: AccountID!
+	operation: DatasetRoleOperation!
+	datasetId: DatasetID!
 }
 
 scalar AccountDisplayName
@@ -152,6 +171,10 @@ type AccountMut {
 	"""
 	modifyPassword(password: AccountPassword!): ModifyPasswordResult!
 	"""
+	Change password with confirmation
+	"""
+	modifyPasswordWithConfirmation(oldPassword: AccountPassword!, newPassword: AccountPassword!): ModifyPasswordResult!
+	"""
 	Delete a selected account. Allowed only for admin users
 	"""
 	delete: DeleteAccountResult!
@@ -159,6 +182,10 @@ type AccountMut {
 	Access to the mutable flow configurations of this account
 	"""
 	flows: AccountFlowsMut!
+	"""
+	Access to the mutable flow configurations of this account
+	"""
+	accessTokens: AccountAccessTokensMut!
 }
 
 scalar AccountName
@@ -225,6 +252,10 @@ type AccountsMut {
 	Create a new account
 	"""
 	createAccount(accountName: AccountName!, email: Email): CreateAccountResult!
+	"""
+	Create wallet accounts
+	"""
+	createWalletAccounts(walletAddresses: [DidPkh!]!): CreateWalletAccountsResult!
 }
 
 """
@@ -299,6 +330,10 @@ type Admin {
 	selfTest: String!
 }
 
+type ApplyRolesMatrixResult {
+	message: String!
+}
+
 """
 Embedded attachment item.
 
@@ -336,7 +371,6 @@ type AttachmentsEmbedded {
 
 type Auth {
 	enabledProviders: [AccountProvider!]!
-	listAccessTokens(accountId: AccountID!, page: Int, perPage: Int): AccessTokenConnection!
 }
 
 type AuthMut {
@@ -346,8 +380,6 @@ type AuthMut {
 	web3: AuthWeb3Mut!
 	login(loginMethod: AccountProvider!, loginCredentialsJson: String!, deviceCode: DeviceCode): LoginResponse!
 	accountDetails(accessToken: String!): Account!
-	createAccessToken(accountId: AccountID!, tokenName: String!): CreateTokenResult!
-	revokeAccessToken(tokenId: AccessTokenID!): RevokeResult!
 }
 
 type AuthWeb3Mut {
@@ -363,11 +395,6 @@ input BatchingInput {
 	minRecordsToAwait: Int!
 	maxBatchingInterval: TimeDeltaInput!
 }
-
-"""
-A big integer scalar type.
-"""
-scalar BigInt
 
 type BlockRef {
 	name: String!
@@ -418,6 +445,13 @@ type Checkpoint {
 type CliProtocolDesc {
 	pullCommand: String!
 	pushCommand: String!
+}
+
+type CollaborationMut {
+	"""
+	Batch application of relations between accounts and datasets
+	"""
+	applyAccountDatasetRelations(operations: [AccountDatasetRelationOperation!]!): ApplyRolesMatrixResult!
 }
 
 type Collection {
@@ -705,25 +739,6 @@ type CreateAccountSuccess implements CreateAccountResult {
 	message: String!
 }
 
-type CreateAnnouncementErrorInvalidAttachment implements CreateAnnouncementResult {
-	message: String!
-	isSuccess: Boolean!
-}
-
-interface CreateAnnouncementResult {
-	isSuccess: Boolean!
-	message: String!
-}
-
-type CreateAnnouncementSuccess implements CreateAnnouncementResult {
-	"""
-	ID of the newly-created announcement
-	"""
-	announcementId: String!
-	isSuccess: Boolean!
-	message: String!
-}
-
 interface CreateDatasetFromSnapshotResult {
 	isSuccess: Boolean!
 	message: String!
@@ -758,24 +773,16 @@ type CreateDatasetResultSuccess implements CreateDatasetResult & CreateDatasetFr
 	message: String!
 }
 
-type CreateProjectErrorConflict implements CreateProjectResult {
-	project: MoleculeProject!
-	isSuccess: Boolean!
-	message: String!
-}
-
-interface CreateProjectResult {
-	isSuccess: Boolean!
-	message: String!
-}
-
-type CreateProjectSuccess implements CreateProjectResult {
-	project: MoleculeProject!
-	isSuccess: Boolean!
-	message: String!
-}
-
 interface CreateTokenResult {
+	message: String!
+}
+
+interface CreateWalletAccountsResult {
+	message: String!
+}
+
+type CreateWalletAccountsSuccess implements CreateWalletAccountsResult {
+	accounts: [Account!]!
 	message: String!
 }
 
@@ -934,7 +941,7 @@ type Dataset {
 	"""
 	visibility: DatasetVisibilityOutput!
 	"""
-	Quck access to `head` block hash
+	Quick access to `head` block hash
 	"""
 	head: Multihash!
 	"""
@@ -1347,6 +1354,19 @@ scalar DatasetRef
 
 scalar DatasetRefRemote
 
+input DatasetRoleOperation @oneOf {
+	set: DatasetRoleSetOperation
+	unset: DatasetRoleUnsetOperation
+}
+
+input DatasetRoleSetOperation {
+	role: DatasetAccessRole!
+}
+
+input DatasetRoleUnsetOperation {
+	dummy: Boolean!
+}
+
 type DatasetState {
 	"""
 	Globally unique identity of the dataset
@@ -1546,6 +1566,13 @@ type DependencyDatasetResultNotAccessible implements DependencyDatasetResult {
 }
 
 scalar DeviceCode
+
+"""
+Wallet address in did:pkh format.
+
+Example: did:pkh:eip155:1:0xb9c5714089478a327f09197987f16f9e5d936e8a
+"""
+scalar DidPkh
 
 """
 Disables the previously defined polling source.
@@ -1924,7 +1951,7 @@ type Flow {
 	"""
 	Primary flow trigger
 	"""
-	primaryTrigger: FlowTriggerType!
+	primaryTrigger: FlowTriggerInstance!
 	"""
 	Start condition
 	"""
@@ -2085,7 +2112,7 @@ type FlowEventAborted implements FlowEvent {
 type FlowEventInitiated implements FlowEvent {
 	eventId: EventID!
 	eventTime: DateTime!
-	trigger: FlowTriggerType!
+	trigger: FlowTriggerInstance!
 }
 
 type FlowEventScheduledForActivation implements FlowEvent {
@@ -2111,7 +2138,7 @@ type FlowEventTaskChanged implements FlowEvent {
 type FlowEventTriggerAdded implements FlowEvent {
 	eventId: EventID!
 	eventTime: DateTime!
-	trigger: FlowTriggerType!
+	trigger: FlowTriggerInstance!
 }
 
 type FlowFailedError {
@@ -2245,6 +2272,8 @@ type FlowTriggerInputDatasetFlow {
 	flowId: FlowID!
 }
 
+union FlowTriggerInstance = FlowTriggerManual | FlowTriggerAutoPolling | FlowTriggerPush | FlowTriggerInputDatasetFlow
+
 type FlowTriggerManual {
 	initiator: Account!
 }
@@ -2254,8 +2283,6 @@ type FlowTriggerPush {
 }
 
 union FlowTriggerScheduleRule = TimeDelta | Cron5ComponentExpression
-
-union FlowTriggerType = FlowTriggerManual | FlowTriggerAutoPolling | FlowTriggerPush | FlowTriggerInputDatasetFlow
 
 type FlowTypeIsNotSupported implements SetFlowConfigResult & SetFlowTriggerResult {
 	message: String!
@@ -2281,11 +2308,6 @@ input InitiatorFilterInput @oneOf {
 	system: Boolean
 	accounts: [AccountID!]
 }
-
-"""
-A scalar that can represent any JSON value.
-"""
-scalar JSON
 
 type JdbcDesc {
 	url: String!
@@ -2520,162 +2542,8 @@ type ModifyPasswordSuccess implements ModifyPasswordResult {
 	message: String!
 }
 
-type Molecule {
-	"""
-	Looks up the project
-	"""
-	project(ipnftUid: String!): MoleculeProject
-	"""
-	List the registered projects
-	"""
-	projects(page: Int, perPage: Int): MoleculeProjectConnection!
-}
-
-type MoleculeMut {
-	createProject(ipnftSymbol: String!, ipnftUid: String!, ipnftAddress: String!, ipnftTokenId: BigInt!): CreateProjectResult!
-	"""
-	Looks up the project
-	"""
-	project(ipnftUid: String!): MoleculeProjectMut
-}
-
-type MoleculeProject {
-	"""
-	System time when this version was created/updated
-	"""
-	systemTime: DateTime!
-	"""
-	Event time when this version was created/updated
-	"""
-	eventTime: DateTime!
-	"""
-	Symbolic name of the project
-	"""
-	ipnftSymbol: String!
-	"""
-	Unique ID of the IPNFT as `{ipnftAddress}_{ipnftTokenId}`
-	"""
-	ipnftUid: String!
-	"""
-	Address of the IPNFT contract
-	"""
-	ipnftAddress: String!
-	"""
-	Token ID withing the IPNFT contract
-	"""
-	ipnftTokenId: BigInt!
-	"""
-	Project's organizational account
-	"""
-	account: Account!
-	"""
-	Project's data room dataset
-	"""
-	dataRoom: Dataset!
-	"""
-	Project's announcements dataset
-	"""
-	announcements: Dataset!
-	"""
-	Project's activity events in reverse chronological order
-	"""
-	activity(page: Int, perPage: Int): MoleculeProjectEventConnection!
-}
-
-type MoleculeProjectConnection {
-	"""
-	A shorthand for `edges { node { ... } }`
-	"""
-	nodes: [MoleculeProject!]!
-	"""
-	Approximate number of total nodes
-	"""
-	totalCount: Int!
-	"""
-	Page information
-	"""
-	pageInfo: PageBasedInfo!
-	edges: [MoleculeProjectEdge!]!
-}
-
-type MoleculeProjectEdge {
-	node: MoleculeProject!
-}
-
-interface MoleculeProjectEvent {
-	systemTime: DateTime!
-}
-
-type MoleculeProjectEventAnnouncement implements MoleculeProjectEvent {
-	"""
-	Announcement record
-	"""
-	announcement: JSON!
-	systemTime: DateTime!
-}
-
-type MoleculeProjectEventConnection {
-	"""
-	A shorthand for `edges { node { ... } }`
-	"""
-	nodes: [MoleculeProjectEvent!]!
-	"""
-	Page information
-	"""
-	pageInfo: PageBasedInfo!
-	edges: [MoleculeProjectEventEdge!]!
-}
-
-type MoleculeProjectEventDataRoomEntryAdded implements MoleculeProjectEvent {
-	"""
-	Collection entry
-	"""
-	entry: CollectionEntry!
-	systemTime: DateTime!
-}
-
-type MoleculeProjectEventDataRoomEntryRemoved implements MoleculeProjectEvent {
-	"""
-	Collection entry
-	"""
-	entry: CollectionEntry!
-	systemTime: DateTime!
-}
-
-type MoleculeProjectEventDataRoomEntryUpdated implements MoleculeProjectEvent {
-	"""
-	Collection entry
-	"""
-	newEntry: CollectionEntry!
-	systemTime: DateTime!
-}
-
-type MoleculeProjectEventEdge {
-	node: MoleculeProjectEvent!
-}
-
-type MoleculeProjectEventFileUpdated implements MoleculeProjectEvent {
-	"""
-	Versioned file dataset
-	"""
-	dataset: Dataset!
-	"""
-	New file version entry
-	"""
-	newEntry: VersionedFileEntry!
-	systemTime: DateTime!
-}
-
-type MoleculeProjectMut {
-	"""
-	Creates an announcement record for the project
-	"""
-	createAnnouncement(		headline: String!,		body: String!,
-		"""
-		List of dataset DIDs to link
-		"""
-		attachments: [String!],		moleculeAccessLevel: String!,		moleculeChangeBy: String!
-	): CreateAnnouncementResult!
+type ModifyPasswordWrongOldPassword implements ModifyPasswordResult {
+	message: String!
 }
 
 """
@@ -2729,9 +2597,11 @@ type Mutation {
 	"""
 	accounts: AccountsMut!
 	"""
-	Temporary: Molecule-specific functionality group
+	Collaboration-related functionality group
+
+	Allows setting permissions for multiple datasets in batch mode
 	"""
-	molecule: MoleculeMut!
+	collaboration: CollaborationMut!
 }
 
 union NameLookupResult = Account
@@ -2922,10 +2792,6 @@ type Query {
 	Admin-related functionality group
 	"""
 	admin: Admin!
-	"""
-	Temporary: Molecule-specific functionality group
-	"""
-	molecule: Molecule!
 }
 
 enum QueryDialect {
