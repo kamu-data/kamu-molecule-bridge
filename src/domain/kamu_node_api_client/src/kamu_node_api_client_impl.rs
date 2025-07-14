@@ -13,7 +13,6 @@ use crate::{
     MoleculeAccessLevel,
     MoleculeAccessLevelEntryMap,
     MoleculeProjectEntry,
-    VersionedFileEntry,
     VersionedFilesEntriesMap,
 };
 
@@ -92,10 +91,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         let molecule_projects = &self.molecule_projects_dataset_alias;
         let offset = maybe_offset.unwrap_or(0);
 
+        // TODO: handle project deletions
         let sql = indoc::formatdoc!(
             r#"
             SELECT offset,
-                   op,
                    account_id AS project_account_id,
                    ipnft_uid,
                    data_room_dataset_id,
@@ -106,13 +105,9 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             "#
         );
 
-        let response = self.sql_query::<Vec<MoleculeProjectsEntryDto>>(sql).await?;
-        let molecule_project_entries = response
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
+        let dtos = self.sql_query::<Vec<MoleculeProjectEntry>>(sql).await?;
 
-        Ok(molecule_project_entries)
+        Ok(dtos)
     }
 
     async fn get_versioned_files_entries_by_data_rooms(
@@ -169,6 +164,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                     SELECT '{data_room_dataset_id}' AS data_room_dataset_id,
                            offset,
                            op,
+                           path,
                            ref                      AS versioned_file_dataset_id
                     FROM '{data_room_dataset_id}'
                     WHERE offset >= {offset}
@@ -182,6 +178,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             SELECT data_room_dataset_id,
                    offset,
                    op,
+                   path,
                    versioned_file_dataset_id
             FROM ({subquery})
             ORDER BY data_room_dataset_id, offset
@@ -197,11 +194,30 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                 .entry(dto.data_room_dataset_id)
                 .or_default();
 
-            data_room_entries.push(VersionedFileEntry {
-                offset: dto.offset,
-                op: dto.op.try_into()?,
-                dataset_id: dto.versioned_file_dataset_id,
-            });
+            data_room_entries.latest_data_room_offset = dto.offset;
+
+            let op: OperationType = dto.op.try_into()?;
+            match op {
+                OperationType::Append => {
+                    data_room_entries
+                        .removed_entities
+                        .remove(&dto.versioned_file_dataset_id);
+                    data_room_entries
+                        .added_entities
+                        .insert(dto.versioned_file_dataset_id);
+                }
+                OperationType::Retract => {
+                    data_room_entries
+                        .added_entities
+                        .remove(&dto.versioned_file_dataset_id);
+                    data_room_entries
+                        .removed_entities
+                        .insert(dto.versioned_file_dataset_id);
+                }
+                OperationType::CorrectFrom | OperationType::CorrectTo => {
+                    // TODO: do we need reaction here?
+                }
+            }
         }
 
         Ok(versioned_files_entries_map)
@@ -255,31 +271,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 struct SqlQuery;
 
 #[derive(Debug, Deserialize, Serialize)]
-struct MoleculeProjectsEntryDto {
-    offset: u64,
-    op: u8,
-    ipnft_uid: String,
-    project_account_id: String,
-    data_room_dataset_id: String,
-    announcements_dataset_id: String,
-}
-
-impl TryFrom<MoleculeProjectsEntryDto> for MoleculeProjectEntry {
-    type Error = eyre::Error;
-
-    fn try_from(v: MoleculeProjectsEntryDto) -> Result<Self, Self::Error> {
-        Ok(Self {
-            offset: v.offset,
-            op: v.op.try_into()?,
-            ipnft_uid: v.ipnft_uid,
-            project_account_id: v.project_account_id,
-            data_room_dataset_id: v.data_room_dataset_id,
-            announcements_dataset_id: v.announcements_dataset_id,
-        })
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 struct DataRoomWithEntryDto {
     data_room_dataset_id: String,
 }
@@ -296,4 +287,28 @@ struct VersionedFileEntryDto {
 struct VersionedFileMoleculeAccessLevelDto {
     versioned_file_dataset_id: String,
     molecule_access_level: MoleculeAccessLevel,
+}
+
+#[repr(u8)]
+#[derive(Debug)]
+enum OperationType {
+    Append = 0,
+    Retract = 1,
+    CorrectFrom = 2,
+    CorrectTo = 3,
+}
+
+impl TryFrom<u8> for OperationType {
+    type Error = eyre::Error;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        let op = match v {
+            0 => OperationType::Append,
+            1 => OperationType::Retract,
+            2 => OperationType::CorrectFrom,
+            3 => OperationType::CorrectTo,
+            unexpected => bail!("Unexpected operation type: {unexpected}"),
+        };
+        Ok(op)
+    }
 }
