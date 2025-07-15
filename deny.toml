@@ -4,6 +4,10 @@ multiple-versions = "deny"
 # We should always specify version ranges
 wildcards = "deny"
 
+deny = [
+    { name = "openssl-sys", reason = "We use rustls throughout the project" },
+    { name = "native-tls", reason = "We use rustls throughout the project" },
+]
 
 [licenses]
 allow = [

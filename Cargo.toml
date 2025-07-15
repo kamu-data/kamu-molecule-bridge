@@ -30,7 +30,18 @@ alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
 
 # TODO: remove extra features
 #       needed feature: contract
-alloy = { version = "1" }
+alloy = { version = "1", default-features = false, features = [
+    "std",
+    "contract",
+    "network",
+    #"node-bindings",
+    "provider-http",
+    "provider-ws",
+    "reqwest-rustls-tls",
+    "rpc-types-eth",
+    #"signer-local",
+    #"sol-types",
+] }
 async-trait = { version = "0.1", default-features = false }
 # TODO: remove extra features
 #       https://github.com/eyre-rs/eyre/tree/master/color-eyre
@@ -38,7 +49,14 @@ color-eyre = { version = "0.6" }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.13", default-features = false }
 pretty_assertions = { version = "1.0", features = ["std", "unstable"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "gzip",
+    "json",
+    "rustls-tls-webpki-roots",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+    "aws-lc-rs",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = [
