@@ -42,7 +42,7 @@ jobs:
       #      - run: cargo deny check --hide-inclusion-graph
       - run: cargo binstall cargo-udeps -y
       - run: cargo --list
-      - run: cargo udeps --all-targets
+      - run: cargo +nightly udeps --all-targets
 
   test_linux:
     name: Test / Linux
