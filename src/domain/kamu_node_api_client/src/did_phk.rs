@@ -19,7 +19,7 @@ impl DidPhk {
     fn get_caip2(chain_id: u64) -> eyre::Result<&'static str> {
         match chain_id {
             1 => Ok("eip155:1"),
-            11155111 => Ok("eip155:11155111"),
+            11_155_111 => Ok("eip155:11155111"),
 
             _ => bail!("Unsupported network with chain ID: {chain_id}"),
         }

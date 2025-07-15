@@ -38,9 +38,12 @@ color-eyre = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 confique = { version = "0.3", default-features = false, features = ["yaml"] }
 dotenv = { version = "0.15", default-features = false, features = [] }
+# TODO: remove extra features
+tracing-subscriber = { version = "0.3", default-features = true }
 
 
 [dev-dependencies]

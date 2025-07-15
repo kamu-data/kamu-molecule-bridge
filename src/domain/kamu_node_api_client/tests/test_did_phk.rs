@@ -15,7 +15,7 @@ fn test_new_from_chain_id() {
     }
     {
         let address = address!("0xabcdef1010101010101010101010101010101010");
-        let did_phk = DidPhk::new_from_chain_id(11155111, address).unwrap();
+        let did_phk = DidPhk::new_from_chain_id(11_155_111, address).unwrap();
 
         assert_eq!(
             "did:pkh:eip155:11155111:0xabCdeF1010101010101010101010101010101010",

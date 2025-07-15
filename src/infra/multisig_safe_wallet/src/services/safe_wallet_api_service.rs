@@ -42,7 +42,7 @@ impl SafeWalletApiService {
             // https://docs.safe.global/core-api/transaction-service-reference/mainnet
             1 => Ok("https://safe-transaction-mainnet.safe.global"),
             // https://docs.safe.global/core-api/transaction-service-reference/sepolia
-            11155111 => Ok("https://safe-transaction-sepolia.safe.global"),
+            11_155_111 => Ok("https://safe-transaction-sepolia.safe.global"),
 
             _ => bail!("Unsupported network with chain ID: {chain_id}"),
         }

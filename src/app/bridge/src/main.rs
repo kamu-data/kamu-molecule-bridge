@@ -8,6 +8,9 @@ use kamu_molecule_bridge::prelude::*;
 use kamu_node_api_client::KamuNodeApiClientImpl;
 use multisig_safe_wallet::services::SafeWalletApiService;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BINARY_NAME: &str = env!("CARGO_PKG_NAME");
+
 fn main() -> eyre::Result<()> {
     // TODO: Currently we are compiling `rustls` with both `ring` and `aws-cl-rs`
     // backends and since v0.23 `rustls` requires to disambiguate between which
@@ -18,8 +21,12 @@ fn main() -> eyre::Result<()> {
         .expect("Could not install default TLS provider");
 
     color_eyre::install()?;
-
-    // TODO: Tracing initialization
+    // TODO: Configure logging layout
+    use tracing_subscriber::fmt::format::FmtSpan;
+    tracing_subscriber::fmt()
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+        .pretty()
+        .init();
     dotenv()?;
 
     let config = Config::builder()
@@ -52,6 +59,8 @@ async fn main_async(config: Config) -> eyre::Result<()> {
         &safe_wallet_api_service,
         kamu_node_api_client,
     );
+
+    tracing::info!(version = VERSION, "Running {BINARY_NAME}");
 
     app.run().await?;
 

@@ -77,13 +77,13 @@ impl<'a> App<'a> {
         }
     }
 
+    #[tracing::instrument(level = "info", skip_all)]
     pub async fn run(&mut self) -> eyre::Result<()> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         self.initial_indexing(latest_finalized_block_number).await?;
 
-        // TODO: remove
-        dbg!(&self.state);
+        tracing::info!("App state: {:#?}", self.state);
 
         Ok(())
     }
@@ -255,7 +255,7 @@ impl<'a> App<'a> {
                 .state
                 .token_address_ipnft_uid_mapping
                 .keys()
-                .cloned()
+                .copied()
                 .collect::<Vec<_>>();
 
             Filter::new()
