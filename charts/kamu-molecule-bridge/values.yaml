@@ -1,0 +1,87 @@
+###############################################################################
+# Application
+###############################################################################
+
+app:
+  logLevel: "debug,alloy_transport_http=info,alloy_rpc_client=info,reqwest=info,hyper=info,h2=info,rustls=info"
+
+  # TODO: generate schema for config from DTOs
+  config:
+    http_address: "0.0.0.0"
+    http_port: 8080
+
+  # Application-level metrics collection
+  metrics:
+    enabled: false
+
+  # Application-level Prometheus alerts
+  alerts:
+    enabled: false
+
+
+###############################################################################
+# Pod
+###############################################################################
+
+replicaCount: 1
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+image:
+  repository: ghcr.io/kamu-data/kamu-molecule-bridge
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+opentelemetry:
+  enabled: false
+  # Directs OTEL traffic to the node collector
+  url: "http://$(HOST_IP):4317"
+
+extraEnv: []
+extraEnvFrom: []
+
+startupProbe: {}
+readinessProbe: {}
+livenessProbe:
+  httpGet:
+    path: /system/health
+    port: http
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

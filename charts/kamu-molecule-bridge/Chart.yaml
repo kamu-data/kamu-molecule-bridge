@@ -1,0 +1,21 @@
+apiVersion: v2
+name: kamu-molecule-bridge
+description: Molecule Labs connector to Kamu
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+home: https://kamu.dev
+icon: https://www.kamu.dev/images/kamu_logo_icon_bg_square.png
+sources:
+  - https://github.com/kamu-data/kamu-node/
+keywords:
+  - desci
+  - web3
+  - molecule
+  - kamu
+  - opendatafabric
+# annotations:
+#   "artifacthub.io/license": Apache-2.0
+#   "artifacthub.io/links": |
+#     - name: Chart Source
+#       url: https://github.com/kamu-data/helm-charts

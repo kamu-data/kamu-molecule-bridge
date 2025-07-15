@@ -1,0 +1,40 @@
+name: release-images
+on:
+  # Manual trigger
+  workflow_dispatch: {}
+  # Automatic trigger after each release
+  # Note: Triggers on both successes and failures (see conditional below)
+  workflow_run:
+    workflows:
+      - release
+    types:
+      - completed
+jobs:
+  build_images:
+    name: Build Images
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'success' ||
+      github.event.workflow_run.conclusion == null
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Checkout the same commit that the release was built for
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          cd images/kamu-molecule-bridge/
+          make build
+
+      - name: Publish image
+        run: |
+          cd images/kamu-molecule-bridge/
+          make push

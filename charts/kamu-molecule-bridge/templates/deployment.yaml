@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kamu-molecule-bridge.fullname" . }}
+  labels:
+    {{- include "kamu-molecule-bridge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kamu-molecule-bridge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with merge
+          .Values.podAnnotations
+          (ternary (dict "roll-pods" (randAlphaNum 5)) dict (eq .Values.image.pullPolicy "Always"))  }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kamu-molecule-bridge.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kamu-molecule-bridge.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "/opt/kamu/kamu-molecule-bridge"
+            - "--config=/opt/kamu/config.yaml"
+            - "run"
+          env:
+            - name: RUST_BACKTRACE
+              value: "1"
+            - name: RUST_LOG
+              value: {{ .Values.app.logLevel | quote }}
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            {{- if .Values.opentelemetry.enabled }}
+            - name: KAMU_OTEL_OTLP_ENDPOINT
+              value: {{ .Values.opentelemetry.url }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: configs
+              subPath: config.yaml
+              mountPath: /opt/kamu/config.yaml
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- if .Values.startupProbe }}
+          readinessProbe: {{- .Values.startupProbe | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe }}
+          readinessProbe: {{- .Values.readinessProbe | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.livenessProbe }}
+          livenessProbe: {{- .Values.livenessProbe | toYaml | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: configs
+          configMap:
+            name: {{ include "kamu-molecule-bridge.fullname" . }}-{{ template "kamu-molecule-bridge.config.sha" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
