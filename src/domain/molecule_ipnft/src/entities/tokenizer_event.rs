@@ -9,6 +9,6 @@ pub enum TokenizerEvent {
 pub struct TokenizerEventTokenCreated {
     pub symbol: String,
     pub token_id: U256,
-    pub token_contract: Address,
-    pub block_number: u64,
+    pub token_address: Address,
+    pub birth_block: u64,
 }

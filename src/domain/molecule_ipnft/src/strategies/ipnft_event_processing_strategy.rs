@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use alloy::primitives::Address;
-use color_eyre::eyre;
-use multisig::services::MultisigResolver;
 
-use crate::entities::{IpnftEvent, IpnftUid};
+use crate::entities::{IpnftEvent, IpnftEventProjection, IpnftUid};
+
+pub type IpnftEventProjectionMap = HashMap<IpnftUid, IpnftEventProjection>;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IpnftEventProcessingDecision {
@@ -16,70 +16,48 @@ pub enum IpnftEventProcessingDecision {
         ipnft_uid: IpnftUid,
         address: Address,
     },
-    AddMultisigToIndexing {
-        ipnft_uid: IpnftUid,
-        address: Address,
-    },
-    RemoveMultisigFromIndexing {
-        ipnft_uid: IpnftUid,
-        address: Address,
-    },
 }
 
-pub struct IpnftEventProcessingStrategy<'a> {
-    multisig_resolver: &'a dyn MultisigResolver,
-}
+pub struct IpnftEventProcessingStrategy;
 
-impl<'a> IpnftEventProcessingStrategy<'a> {
-    pub fn new(multisig_resolver: &'a dyn MultisigResolver) -> Self {
-        Self { multisig_resolver }
-    }
-
-    pub async fn process(
-        &self,
-        events: Vec<IpnftEvent>,
-    ) -> eyre::Result<Vec<IpnftEventProcessingDecision>> {
-        #[derive(Debug, Default)]
-        struct IpnftProjection {
-            symbol: Option<String>,
-            current_owner: Option<Address>,
-            former_owners: HashSet<Address>,
-            minted: bool,
-            burnt: bool,
-        }
-
-        let mut ipnft_projections_map = HashMap::<IpnftUid, IpnftProjection>::new();
+impl IpnftEventProcessingStrategy {
+    pub fn process(&self, events: Vec<IpnftEvent>) -> IpnftEventProjectionMap {
+        // NOTE: Event projections on the current `events` group
+        let mut iteration_projections_map = IpnftEventProjectionMap::new();
 
         for event in events {
-            let ipnft_projection: &mut IpnftProjection =
-                ipnft_projections_map.entry(event.ipnft_uid()).or_default();
+            let projection = iteration_projections_map
+                .entry(event.ipnft_uid())
+                .or_default();
 
             match event {
                 IpnftEvent::Minted(event) => {
-                    ipnft_projection.symbol = Some(event.symbol);
-                    ipnft_projection.current_owner = Some(event.initial_owner);
-                    ipnft_projection.minted = true;
+                    projection.symbol = Some(event.symbol);
+                    projection.current_owner = Some(event.initial_owner);
+                    projection.minted = true;
                 }
                 IpnftEvent::Transfer(event) => {
-                    // NOTE: If IPNFT was just minted, we haven't granted access yet,
-                    //       so no need to revoke them.
-                    if !ipnft_projection.minted {
-                        ipnft_projection.former_owners.insert(event.from);
-                    }
-
-                    ipnft_projection.current_owner = Some(event.to);
+                    projection.current_owner = Some(event.to);
+                    projection.former_owner = Some(event.from);
                 }
                 IpnftEvent::Burnt(event) => {
-                    ipnft_projection.current_owner = None;
-                    ipnft_projection.former_owners.insert(event.former_owner);
-                    ipnft_projection.burnt = true;
+                    projection.current_owner = None;
+                    projection.former_owner = Some(event.former_owner);
+                    projection.burnt = true;
                 }
             }
         }
 
+        iteration_projections_map
+    }
+
+    pub fn build_decisions(
+        &self,
+        projections_map: &IpnftEventProjectionMap,
+    ) -> Vec<IpnftEventProcessingDecision> {
         let mut decisions = Vec::new();
 
-        for (ipnft_uid, projection) in ipnft_projections_map {
+        for (ipnft_uid, projection) in projections_map {
             if projection.minted && projection.burnt {
                 // NOTE: IPNFT was burned before we could give access to anyone.
                 //       So there's no need to revoke access from anyone as well.
@@ -88,55 +66,58 @@ impl<'a> IpnftEventProcessingStrategy<'a> {
             }
 
             if let Some(current_owner) = projection.current_owner {
-                let GetOwnersResponse { owners, multisig } = self.get_owners(current_owner).await?;
-
-                decisions.extend(owners.into_iter().map(|current_owner| {
-                    IpnftEventProcessingDecision::GrantMaintainerAccess {
-                        ipnft_uid,
-                        address: current_owner,
-                    }
-                }));
-
-                if multisig {
-                    decisions.push(IpnftEventProcessingDecision::AddMultisigToIndexing {
-                        ipnft_uid,
-                        address: current_owner,
-                    });
-                }
+                decisions.push(IpnftEventProcessingDecision::GrantMaintainerAccess {
+                    ipnft_uid: *ipnft_uid,
+                    address: current_owner,
+                });
             }
 
-            for former_owner in projection.former_owners {
-                let GetOwnersResponse { owners, multisig } = self.get_owners(former_owner).await?;
-
-                decisions.extend(owners.into_iter().map(|former_owner| {
-                    IpnftEventProcessingDecision::RevokeMaintainerAccess {
-                        ipnft_uid,
-                        address: former_owner,
-                    }
-                }));
-
-                if multisig {
-                    decisions.push(IpnftEventProcessingDecision::RemoveMultisigFromIndexing {
-                        ipnft_uid,
-                        address: former_owner,
-                    });
-                }
+            if let Some(former_owner) = projection.former_owner {
+                decisions.push(IpnftEventProcessingDecision::RevokeMaintainerAccess {
+                    ipnft_uid: *ipnft_uid,
+                    address: former_owner,
+                });
             }
         }
 
-        Ok(decisions)
+        decisions
     }
 
-    async fn get_owners(&self, address: Address) -> eyre::Result<GetOwnersResponse> {
-        let maybe_owners = self.multisig_resolver.get_multisig_owners(address).await?;
-        let multisig = maybe_owners.is_some();
-        let owners = maybe_owners.unwrap_or_else(|| HashSet::from([address]));
+    pub fn synchronize_ipnft_event_projections(
+        &self,
+        global_projection: &mut IpnftEventProjection,
+        iteration_projection: IpnftEventProjection,
+    ) {
+        if iteration_projection.minted {
+            global_projection.minted = true;
+        }
 
-        Ok(GetOwnersResponse { owners, multisig })
+        if let Some(symbol) = iteration_projection.symbol {
+            debug_assert!(global_projection.symbol.is_none());
+            global_projection.symbol = Some(symbol);
+        }
+
+        if let Some(new_current_owner) = iteration_projection.current_owner {
+            global_projection.current_owner = Some(new_current_owner);
+        }
+
+        if let Some(new_former_owner) = iteration_projection.former_owner {
+            global_projection.former_owner = Some(new_former_owner);
+        }
+
+        global_projection.burnt = iteration_projection.burnt;
     }
-}
 
-struct GetOwnersResponse {
-    owners: HashSet<Address>,
-    multisig: bool,
+    // TODO: use?
+    pub fn synchronize_ipnft_event_projections_maps(
+        &self,
+        global_projections_map: &mut HashMap<IpnftUid, IpnftEventProjection>,
+        iteration_projections_map: HashMap<IpnftUid, IpnftEventProjection>,
+    ) {
+        for (ipnft_uid, iteration_projection) in iteration_projections_map {
+            let global_projection = global_projections_map.entry(ipnft_uid).or_default();
+
+            self.synchronize_ipnft_event_projections(global_projection, iteration_projection);
+        }
+    }
 }

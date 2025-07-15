@@ -38,3 +38,12 @@ pub struct IpnftEventBurnt {
     pub ipnft_uid: IpnftUid,
     pub former_owner: Address,
 }
+
+#[derive(Debug, Default)]
+pub struct IpnftEventProjection {
+    pub symbol: Option<String>,
+    pub current_owner: Option<Address>,
+    pub former_owner: Option<Address>,
+    pub minted: bool,
+    pub burnt: bool,
+}

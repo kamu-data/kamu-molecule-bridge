@@ -46,7 +46,7 @@ async fn main_async(config: Config) -> eyre::Result<()> {
         config.molecule_projects_dataset_alias.clone(),
     ));
 
-    let app = App::new(
+    let mut app = App::new(
         config,
         provider,
         &safe_wallet_api_service,

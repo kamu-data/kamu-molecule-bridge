@@ -43,6 +43,7 @@ alloy = { version = "1", default-features = false, features = [
     #"sol-types",
 ] }
 async-trait = { version = "0.1", default-features = false }
+# TODO: use eyre and color-eyre only in app crate
 # TODO: remove extra features
 #       https://github.com/eyre-rs/eyre/tree/master/color-eyre
 color-eyre = { version = "0.6" }
