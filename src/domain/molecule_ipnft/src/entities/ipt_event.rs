@@ -7,6 +7,7 @@ pub enum IptEvent {
 
 #[derive(Debug)]
 pub struct IptEventTransfer {
+    pub token_address: Address,
     pub from: Address,
     pub to: Address,
     pub value: U256,

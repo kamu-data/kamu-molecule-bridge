@@ -11,16 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
 use crate::{
-    AccountDatasetRelationOperation,
-    DataRoomDatasetIdWithOffset,
-    DatasetAccessRole,
-    DatasetID,
-    DatasetRoleOperation,
-    KamuNodeApiClient,
-    MoleculeAccessLevel,
-    MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry,
-    VersionedFilesEntriesMap,
+    AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
+    DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
+    MoleculeProjectEntry, VersionedFilesEntriesMap,
 };
 
 pub struct KamuNodeApiClientImpl {
@@ -93,10 +86,9 @@ impl KamuNodeApiClientImpl {
 impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn get_molecule_project_entries(
         &self,
-        maybe_offset: Option<u64>,
+        offset: u64,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
-        let offset = maybe_offset.unwrap_or(0);
 
         // TODO: handle project deletions
         let sql = indoc::formatdoc!(
@@ -169,7 +161,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             .into_iter()
             .map(|data_room| {
                 let data_room_dataset_id = data_room.dataset_id;
-                let offset = data_room.offset.unwrap_or(0);
+                let offset = data_room.offset;
 
                 indoc::formatdoc!(
                     r#"

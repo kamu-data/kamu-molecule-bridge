@@ -12,7 +12,7 @@ use crate::did_phk::DidPhk;
 pub trait KamuNodeApiClient {
     async fn get_molecule_project_entries(
         &self,
-        maybe_offset: Option<u64>,
+        offset: u64,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>>;
 
     async fn get_versioned_files_entries_by_data_rooms(
@@ -73,7 +73,7 @@ pub enum MoleculeAccessLevel {
 #[derive(Debug)]
 pub struct DataRoomDatasetIdWithOffset {
     pub dataset_id: DatasetID,
-    pub offset: Option<u64>,
+    pub offset: u64,
 }
 
 #[derive(Debug)]
