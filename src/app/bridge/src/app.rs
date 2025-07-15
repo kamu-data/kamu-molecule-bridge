@@ -6,10 +6,10 @@ use alloy::providers::DynProvider;
 use alloy::rpc::types::Filter;
 use alloy_ext::prelude::*;
 use color_eyre::eyre;
-use color_eyre::eyre::bail;
+use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::KamuNodeApiClient;
 use molecule_contracts::prelude::*;
-use molecule_contracts::{IPNFT, Synthesizer, Tokenizer};
+use molecule_contracts::{IPNFT, IPToken, Synthesizer, Tokenizer};
 use molecule_ipnft::entities::*;
 use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
@@ -65,20 +65,27 @@ impl<'a> App<'a> {
     }
 
     pub async fn run(&mut self) -> eyre::Result<()> {
+        let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
+
+        self.initial_indexing(latest_finalized_block_number).await?;
+
+        // TODO: remove
+        dbg!(&self.state);
+
+        Ok(())
+    }
+
+    async fn initial_indexing(&mut self, to_block: u64) -> eyre::Result<()> {
         let minimal_ipnft_tokenizer_birth_block = self
             .config
             .ipnft_contract_birth_block
             .min(self.config.tokenizer_contract_birth_block);
-        let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         let IndexIpnftAndTokenizerContractsResponse {
             ipnft_events,
             tokenizer_events,
         } = self
-            .index_ipnft_and_tokenizer_contracts(
-                minimal_ipnft_tokenizer_birth_block,
-                latest_finalized_block_number,
-            )
+            .index_ipnft_and_tokenizer_contracts(minimal_ipnft_tokenizer_birth_block, to_block)
             .await?;
 
         let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
@@ -94,14 +101,15 @@ impl<'a> App<'a> {
         }
 
         let ProcessTokenizerEventsResponse {
-            ipt_addresses: _,
-            minimal_ipt_birth_block: _,
+            minimal_ipt_birth_block,
         } = self.process_tokenizer_events(tokenizer_events);
 
-        self.state.ipnft_latest_indexed_block_number = latest_finalized_block_number;
+        self.state.ipnft_latest_indexed_block_number = to_block;
 
-        // TODO: remove
-        dbg!(&self.state);
+        let token_transfer_events = self.index_tokens(minimal_ipt_birth_block, to_block).await?;
+        self.process_token_transfer_events(token_transfer_events)?;
+
+        self.state.tokens_latest_indexed_block_number = to_block;
 
         Ok(())
     }
@@ -111,6 +119,8 @@ impl<'a> App<'a> {
         from_block: u64,
         to_block: u64,
     ) -> eyre::Result<IndexIpnftAndTokenizerContractsResponse> {
+        debug_assert!(to_block >= from_block);
+
         let filter = {
             let addresses = vec![
                 self.config.ipnft_contract_address,
@@ -219,12 +229,62 @@ impl<'a> App<'a> {
         })
     }
 
+    async fn index_tokens(
+        &mut self,
+        from_block: u64,
+        to_block: u64,
+    ) -> eyre::Result<Vec<IptEventTransfer>> {
+        debug_assert!(to_block >= from_block);
+
+        let filter = {
+            let addresses = self
+                .state
+                .token_address_ipnft_uid_mapping
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+
+            Filter::new()
+                .address(addresses)
+                .event_signature(IPToken::Transfer::SIGNATURE_HASH)
+                .from_block(from_block)
+                .to_block(to_block)
+        };
+
+        let mut events = Vec::new();
+
+        self.rpc_client
+            .get_logs_ext(&filter, |logs_chunk| {
+                for log in logs_chunk.logs {
+                    match log.event_signature_hash() {
+                        IPToken::Transfer::SIGNATURE_HASH => {
+                            let event = IPToken::Transfer::decode_log(&log.inner)?;
+
+                            events.push(IptEventTransfer {
+                                token_address: event.address,
+                                from: event.from,
+                                to: event.to,
+                                value: event.value,
+                            });
+                        }
+                        unknown_event_signature_hash => {
+                            bail!("Unknown event signature hash: {unknown_event_signature_hash}")
+                        }
+                    }
+                }
+
+                Ok(())
+            })
+            .await?;
+
+        Ok(events)
+    }
+
     fn process_tokenizer_events(
         &mut self,
         tokenizer_events: Vec<TokenizerEvent>,
     ) -> ProcessTokenizerEventsResponse {
-        let mut ipt_addresses = Vec::with_capacity(tokenizer_events.capacity());
-        let mut minimal_ipt_birth_block = 0;
+        let mut minimal_birth_block = 0;
 
         for event in tokenizer_events {
             match event {
@@ -234,14 +294,6 @@ impl<'a> App<'a> {
                     symbol,
                     birth_block,
                 }) => {
-                    ipt_addresses.push(token_address);
-
-                    if minimal_ipt_birth_block == 0 {
-                        minimal_ipt_birth_block = birth_block;
-                    } else {
-                        minimal_ipt_birth_block = minimal_ipt_birth_block.min(birth_block);
-                    }
-
                     let maybe_ipnft_state_pair =
                         self.state
                             .ipnft_state_map
@@ -251,27 +303,76 @@ impl<'a> App<'a> {
                                     && ipnft_state.ipnft.symbol.as_ref() == Some(&symbol)
                             });
 
-                    if let Some((ipnft_uid, ipnft_state)) = maybe_ipnft_state_pair {
-                        ipnft_state.token = Some(TokenProjection {
-                            token_address,
-                            // NOTE: Will be populated later
-                            holder_balances: HashMap::new(),
-                        });
-
-                        self.state
-                            .token_address_ipnft_uid_mapping
-                            .insert(token_address, *ipnft_uid);
-                    } else {
+                    let Some((ipnft_uid, ipnft_state)) = maybe_ipnft_state_pair else {
                         // TODO: warning message -- token without IPNFT
+                        continue;
+                    };
+
+                    ipnft_state.token = Some(TokenProjection {
+                        token_address,
+                        // NOTE: Will be populated later
+                        holder_balances: HashMap::new(),
+                    });
+
+                    self.state
+                        .token_address_ipnft_uid_mapping
+                        .insert(token_address, *ipnft_uid);
+
+                    if minimal_birth_block == 0 {
+                        minimal_birth_block = birth_block;
+                    } else {
+                        minimal_birth_block = minimal_birth_block.min(birth_block);
                     }
                 }
             }
         }
 
         ProcessTokenizerEventsResponse {
-            ipt_addresses,
-            minimal_ipt_birth_block,
+            minimal_ipt_birth_block: minimal_birth_block,
         }
+    }
+
+    fn process_token_transfer_events(&mut self, events: Vec<IptEventTransfer>) -> eyre::Result<()> {
+        for event in events {
+            let Some(ipnft_uid) = self
+                .state
+                .token_address_ipnft_uid_mapping
+                .get(&event.token_address)
+            else {
+                // TODO: warning message -- token without IPNFT
+                continue;
+            };
+
+            let ipnft_state = self
+                .state
+                .ipnft_state_map
+                .get_mut(ipnft_uid)
+                .wrap_err_with(|| format!("IPNFT should be present: '{ipnft_uid}'"))?;
+            let token_projection = ipnft_state
+                .token
+                .as_mut()
+                .wrap_err_with(|| format!("Token should be present: '{ipnft_uid}'"))?;
+
+            debug_assert_eq!(token_projection.token_address, event.token_address);
+
+            if event.from != Address::ZERO {
+                let balance = token_projection
+                    .holder_balances
+                    .entry(event.from)
+                    .or_default();
+                *balance -= event.value;
+            }
+
+            if event.to != Address::ZERO {
+                let balance = token_projection
+                    .holder_balances
+                    .entry(event.to)
+                    .or_default();
+                *balance += event.value;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -281,6 +382,5 @@ struct IndexIpnftAndTokenizerContractsResponse {
 }
 
 struct ProcessTokenizerEventsResponse {
-    ipt_addresses: Vec<Address>,
     minimal_ipt_birth_block: u64,
 }
