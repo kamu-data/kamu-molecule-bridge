@@ -13,23 +13,32 @@ pub struct LogsChunk {
 
 #[async_trait]
 pub trait ProviderExt {
-    async fn get_logs_ext<F>(&self, filter: &Filter, callback: F) -> eyre::Result<()>
+    async fn get_logs_ext<F>(&self, filter: &Filter, callback: &mut F) -> eyre::Result<()>
     where
-        F: FnMut(LogsChunk) -> eyre::Result<()> + Send;
+        F: FnMut(LogsChunk) -> eyre::Result<()> + Send + Sync;
 
     async fn latest_finalized_block_number(&self) -> eyre::Result<u64>;
 }
 
 #[async_trait]
 impl ProviderExt for DynProvider {
-    async fn get_logs_ext<F>(&self, filter: &Filter, mut callback: F) -> eyre::Result<()>
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(
+            from = filter.get_from_block().unwrap_or_default(),
+            to = filter.get_to_block().unwrap_or_default(),
+            diff = filter.get_to_block().unwrap_or_default() - filter.get_from_block().unwrap_or_default(),
+        )
+    )]
+    async fn get_logs_ext<F>(&self, filter: &Filter, callback: &mut F) -> eyre::Result<()>
     where
-        F: FnMut(LogsChunk) -> eyre::Result<()> + Send,
+        F: FnMut(LogsChunk) -> eyre::Result<()> + Send + Sync,
     {
         // TODO: Handle RPC errors (too many events)
         let logs = self.get_logs(filter).await?;
 
-        callback(LogsChunk {
+        (*callback)(LogsChunk {
             from_block: filter.get_from_block().unwrap_or_default(),
             to_block: filter.get_from_block().unwrap_or_default(),
             logs,

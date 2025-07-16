@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use color_eyre::eyre;
@@ -55,12 +55,18 @@ pub struct VersionedFilesEntries {
     pub removed_entities: ChangedVersionedFiles,
 }
 
-pub type ChangedVersionedFiles = HashSet</* versioned_file_dataset_id */ DatasetID>;
+pub type ChangedVersionedFiles = HashMap<DatasetID, VersionedFileEntry>;
+
+#[derive(Debug)]
+pub struct VersionedFileEntry {
+    pub offset: u64,
+    pub path: String,
+}
 
 pub type MoleculeAccessLevelEntryMap =
     HashMap</* versioned_file_dataset_id */ DatasetID, MoleculeAccessLevel>;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum MoleculeAccessLevel {
     Public,

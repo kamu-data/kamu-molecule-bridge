@@ -13,7 +13,7 @@ use crate::did_phk::DidPhk;
 use crate::{
     AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
     DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry, VersionedFilesEntriesMap,
+    MoleculeProjectEntry, VersionedFileEntry, VersionedFilesEntriesMap,
 };
 
 pub struct KamuNodeApiClientImpl {
@@ -200,23 +200,21 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
             data_room_entries.latest_data_room_offset = dto.offset;
 
+            let dataset_id = dto.versioned_file_dataset_id;
+            let entry = VersionedFileEntry {
+                offset: dto.offset,
+                path: dto.path,
+            };
+
             let op: OperationType = dto.op.try_into()?;
             match op {
                 OperationType::Append => {
-                    data_room_entries
-                        .removed_entities
-                        .remove(&dto.versioned_file_dataset_id);
-                    data_room_entries
-                        .added_entities
-                        .insert(dto.versioned_file_dataset_id);
+                    data_room_entries.removed_entities.remove(&dataset_id);
+                    data_room_entries.added_entities.insert(dataset_id, entry);
                 }
                 OperationType::Retract => {
-                    data_room_entries
-                        .added_entities
-                        .remove(&dto.versioned_file_dataset_id);
-                    data_room_entries
-                        .removed_entities
-                        .insert(dto.versioned_file_dataset_id);
+                    data_room_entries.added_entities.remove(&dataset_id);
+                    data_room_entries.removed_entities.insert(dataset_id, entry);
                 }
                 OperationType::CorrectFrom | OperationType::CorrectTo => {
                     // TODO: do we need reaction here?
@@ -341,6 +339,7 @@ struct VersionedFileEntryDto {
     offset: u64,
     op: u8,
     versioned_file_dataset_id: String,
+    path: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

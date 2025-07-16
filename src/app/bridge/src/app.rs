@@ -7,9 +7,7 @@ use alloy::rpc::types::Filter;
 use alloy_ext::prelude::*;
 use color_eyre::eyre;
 use color_eyre::eyre::{ContextCompat, bail};
-use kamu_node_api_client::{
-    DataRoomDatasetIdWithOffset, KamuNodeApiClient, MoleculeProjectEntry, VersionedFilesEntries,
-};
+use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
 use molecule_contracts::{IPNFT, IPToken, Synthesizer, Tokenizer};
 use molecule_ipnft::entities::*;
@@ -52,7 +50,14 @@ struct IpnftState {
 #[derive(Debug)]
 struct ProjectProjection {
     entry: MoleculeProjectEntry,
-    versioned_files_entries: VersionedFilesEntries,
+    actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
+    removed_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
+}
+
+#[derive(Debug)]
+struct VersionedFileEntryWithMoleculeAccessLevel {
+    entry: VersionedFileEntry,
+    molecule_access_level: MoleculeAccessLevel,
 }
 
 #[derive(Debug)]
@@ -82,6 +87,7 @@ impl<'a> App<'a> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         self.initial_indexing(latest_finalized_block_number).await?;
+        self.initial_projects_loading().await?;
 
         tracing::info!("App state: {:#?}", self.state);
 
@@ -128,6 +134,15 @@ impl<'a> App<'a> {
         Ok(())
     }
 
+    #[tracing::instrument(
+        level = "info",
+        skip_all,
+        fields(
+            from_block = from_block,
+            to_block = to_block,
+            diff = to_block - from_block,
+        )
+    )]
     async fn index_ipnft_and_tokenizer_contracts(
         &self,
         from_block: u64,
@@ -159,7 +174,7 @@ impl<'a> App<'a> {
         let mut tokenizer_events = Vec::new();
 
         self.rpc_client
-            .get_logs_ext(&filter, |logs_chunk| {
+            .get_logs_ext(&filter, &mut |logs_chunk| {
                 for log in logs_chunk.logs {
                     match log.event_signature_hash() {
                         IPNFT::IPNFTMinted::SIGNATURE_HASH => {
@@ -243,6 +258,15 @@ impl<'a> App<'a> {
         })
     }
 
+    #[tracing::instrument(
+        level = "info",
+        skip_all,
+        fields(
+            from_block = from_block,
+            to_block = to_block,
+            diff = to_block - from_block,
+        )
+    )]
     async fn index_tokens(
         &mut self,
         from_block: u64,
@@ -258,6 +282,11 @@ impl<'a> App<'a> {
                 .copied()
                 .collect::<Vec<_>>();
 
+            if addresses.is_empty() {
+                // TODO: warning
+                return Ok(Vec::new());
+            }
+
             Filter::new()
                 .address(addresses)
                 .event_signature(IPToken::Transfer::SIGNATURE_HASH)
@@ -268,7 +297,7 @@ impl<'a> App<'a> {
         let mut events = Vec::new();
 
         self.rpc_client
-            .get_logs_ext(&filter, |logs_chunk| {
+            .get_logs_ext(&filter, &mut |logs_chunk| {
                 for log in logs_chunk.logs {
                     match log.event_signature_hash() {
                         IPToken::Transfer::SIGNATURE_HASH => {
@@ -390,7 +419,7 @@ impl<'a> App<'a> {
     }
 
     #[expect(dead_code)]
-    async fn initial_projects_loading(&mut self) -> eyre::Result<InitialProjectsLoadingResponse> {
+    async fn initial_projects_loading(&mut self) -> eyre::Result<()> {
         let all_projects_entries = self
             .kamu_node_api_client
             .get_molecule_project_entries(0) // NOTE: full scan
@@ -402,7 +431,7 @@ impl<'a> App<'a> {
                 offset: 0, // NOTE: full scan
             })
             .collect();
-        let versioned_files_entries_map = self
+        let mut versioned_files_entries_map = self
             .kamu_node_api_client
             .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids)
             .await?;
@@ -410,30 +439,79 @@ impl<'a> App<'a> {
             versioned_files_entries_map
                 .values()
                 .fold(Vec::new(), |mut acc, entries| {
-                    acc.extend(entries.added_entities.iter().cloned());
-                    acc.extend(entries.removed_entities.iter().cloned());
+                    acc.extend(entries.added_entities.keys().cloned());
+                    acc.extend(entries.removed_entities.keys().cloned());
                     acc
                 });
-        let _molecule_access_levels_map = self
+        let molecule_access_levels_map = self
             .kamu_node_api_client
             .get_latest_molecule_access_levels_by_dataset_ids(versioned_file_dataset_ids)
             .await?;
 
-        // let mut projects_dataset_offset = 0;
-
+        let mut projects_dataset_offset = 0;
         for project_entry in all_projects_entries {
-            let Some(_ipnft_state) = self.state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
+            projects_dataset_offset = project_entry.offset;
+
+            let Some(ipnft_state) = self.state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
             else {
                 // TODO: warning message -- project without IPNFT in blockchain
                 continue;
             };
 
-            // TODO: continue
+            let versioned_files_entries = versioned_files_entries_map
+                // NOTE: try to extract a value from the map
+                .remove(&project_entry.data_room_dataset_id)
+                .unwrap_or_default();
+            // TODO: extract impl From<...>
+            let actual_files_map = versioned_files_entries
+                .added_entities
+                .into_iter()
+                .map(|(dataset_id, file_entry)| {
+                    let molecule_access_level =
+                        if let Some(value) = molecule_access_levels_map.get(&dataset_id) {
+                            *value
+                        } else {
+                            todo!();
+                        };
+                    (
+                        dataset_id,
+                        VersionedFileEntryWithMoleculeAccessLevel {
+                            entry: file_entry,
+                            molecule_access_level,
+                        },
+                    )
+                })
+                .collect();
+            let removed_files_map = versioned_files_entries
+                .removed_entities
+                .into_iter()
+                .map(|(dataset_id, file_entry)| {
+                    let molecule_access_level =
+                        if let Some(value) = molecule_access_levels_map.get(&dataset_id) {
+                            *value
+                        } else {
+                            todo!();
+                        };
+                    (
+                        dataset_id,
+                        VersionedFileEntryWithMoleculeAccessLevel {
+                            entry: file_entry,
+                            molecule_access_level,
+                        },
+                    )
+                })
+                .collect();
+
+            ipnft_state.project = Some(ProjectProjection {
+                entry: project_entry,
+                actual_files_map,
+                removed_files_map,
+            });
         }
 
-        Ok(InitialProjectsLoadingResponse {
-            projects_dataset_offset: 0,
-        })
+        self.state.projects_dataset_offset = projects_dataset_offset;
+
+        Ok(())
     }
 }
 
@@ -444,9 +522,4 @@ struct IndexIpnftAndTokenizerContractsResponse {
 
 struct ProcessTokenizerEventsResponse {
     minimal_ipt_birth_block: u64,
-}
-
-#[expect(dead_code)]
-struct InitialProjectsLoadingResponse {
-    projects_dataset_offset: u64,
 }

@@ -14,6 +14,11 @@ const DEFAULT_RUST_LOG: &str =
     "debug,alloy_transport_http=info,alloy_rpc_client=info,reqwest=info,hyper=info,h2=info";
 
 fn main() -> eyre::Result<()> {
+    // TODO Warning: SpanTrace capture is Unsupported
+    //      Ensure that you've setup a tracing-error ErrorLayer and the semver versions are compatible
+    //      - https://github.com/eyre-rs/eyre/tree/master/color-eyre#disabling-spantrace-capture-by-default
+    //      - https://github.com/eyre-rs/color-eyre/issues/32
+    //      - https://github.com/eyre-rs/eyre/tree/master/color-spantrace
     color_eyre::install()?;
 
     dotenv()?;

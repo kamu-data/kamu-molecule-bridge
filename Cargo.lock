@@ -664,6 +664,10 @@ dependencies = [
  "alloy",
  "async-trait",
  "color-eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
