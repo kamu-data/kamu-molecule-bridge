@@ -417,7 +417,7 @@ impl App {
         Ok(())
     }
 
-    #[expect(dead_code)]
+    #[tracing::instrument(level = "info", skip_all)]
     async fn initial_projects_loading(&mut self) -> eyre::Result<()> {
         let all_projects_entries = self
             .kamu_node_api_client

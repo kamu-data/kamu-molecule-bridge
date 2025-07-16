@@ -13,7 +13,7 @@ use crate::did_phk::DidPhk;
 use crate::{
     AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
     DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry, VersionedFileEntry, VersionedFilesEntriesMap,
+    MoleculeProjectEntry, VecToString, VersionedFileEntry, VersionedFilesEntriesMap,
 };
 
 pub struct KamuNodeApiClientImpl {
@@ -84,6 +84,7 @@ impl KamuNodeApiClientImpl {
 
 #[async_trait]
 impl KamuNodeApiClient for KamuNodeApiClientImpl {
+    #[tracing::instrument(level = "debug", skip_all, fields(offset = offset))]
     async fn get_molecule_project_entries(
         &self,
         offset: u64,
@@ -114,6 +115,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         Ok(project_entries)
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(data_rooms_count = data_rooms.len()))]
     async fn get_versioned_files_entries_by_data_rooms(
         &self,
         data_rooms: Vec<DataRoomDatasetIdWithOffset>,
@@ -225,6 +227,13 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         Ok(versioned_files_entries_map)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(
+            versioned_file_dataset_ids_count = versioned_file_dataset_ids.len()
+        )
+    )]
     async fn get_latest_molecule_access_levels_by_dataset_ids(
         &self,
         versioned_file_dataset_ids: Vec<String>,
@@ -262,6 +271,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         Ok(map)
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(did_pkhs = did_pkhs.to_string()))]
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
@@ -271,6 +281,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(operations_count = operations.len()))]
     async fn apply_account_dataset_relations(
         &self,
         operations: Vec<AccountDatasetRelationOperation>,

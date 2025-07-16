@@ -66,6 +66,7 @@ pub struct VersionedFileEntry {
 pub type MoleculeAccessLevelEntryMap =
     HashMap</* versioned_file_dataset_id */ DatasetID, MoleculeAccessLevel>;
 
+// https://discord.com/channels/@me/1364902681159794688/1394272024746135644
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum MoleculeAccessLevel {

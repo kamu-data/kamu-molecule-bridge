@@ -31,3 +31,19 @@ impl Display for DidPhk {
         write!(f, "did:pkh:{}:{}", self.caip2, self.address)
     }
 }
+
+pub trait VecToString<T> {
+    fn to_string(&self) -> String;
+}
+
+impl<T: Display> VecToString<T> for Vec<T> {
+    fn to_string(&self) -> String {
+        format!(
+            "[{}]",
+            self.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+}
