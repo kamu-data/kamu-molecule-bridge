@@ -16,11 +16,10 @@ use multisig::services::MultisigResolver;
 
 use crate::config::Config;
 
-pub struct App<'a> {
+pub struct App {
     config: Config,
     rpc_client: DynProvider,
-    #[expect(dead_code)]
-    multisig_resolver: &'a dyn MultisigResolver,
+    multisig_resolver: Arc<dyn MultisigResolver>,
     kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
 
     state: AppState,
@@ -66,11 +65,11 @@ struct TokenProjection {
     holder_balances: HashMap<Address, U256>,
 }
 
-impl<'a> App<'a> {
+impl App {
     pub fn new(
         config: Config,
         rpc_client: DynProvider,
-        multisig_resolver: &'a dyn MultisigResolver,
+        multisig_resolver: Arc<dyn MultisigResolver>,
         kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
     ) -> Self {
         Self {
