@@ -24,6 +24,9 @@ pub struct Config {
     pub tokenizer_contract_address: Address,
     #[config(env = "TOKENIZER_CONTRACT_BIRTH_BLOCK")]
     pub tokenizer_contract_birth_block: u64,
+
+    #[config(env = "INDEXING_DELAY_BETWEEN_ITERATIONS_IN_SECS")]
+    pub indexing_delay_between_iterations_in_secs: u64,
 }
 
 impl Config {
