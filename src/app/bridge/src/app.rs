@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use alloy::primitives::{Address, U256};
-use alloy::providers::DynProvider;
+use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::Filter;
 use alloy_ext::prelude::*;
-use color_eyre::eyre;
+use color_eyre::eyre::{self, eyre};
 use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
@@ -15,12 +15,15 @@ use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
 
 use crate::config::Config;
+use crate::http_server;
+use crate::metrics::BridgeMetrics;
 
 pub struct App {
     config: Config,
     rpc_client: DynProvider,
     multisig_resolver: Arc<dyn MultisigResolver>,
     kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
+    metrics: BridgeMetrics,
 
     state: AppState,
 }
@@ -69,17 +72,42 @@ impl App {
         multisig_resolver: Arc<dyn MultisigResolver>,
         kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
     ) -> Self {
+        let metrics = BridgeMetrics::new(config.chain_id);
         Self {
             config,
             rpc_client,
             multisig_resolver,
             kamu_node_api_client,
+            metrics,
             state: Default::default(),
         }
     }
 
     #[tracing::instrument(level = "info", skip_all)]
-    pub async fn run(&mut self) -> eyre::Result<()> {
+    pub async fn run<F>(&mut self, shutdown_requested: F) -> eyre::Result<()>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let metrics_reg =
+            prometheus::Registry::new_custom(Some("kamu_molecule_bridge".into()), None).unwrap();
+        self.metrics.register(&metrics_reg)?;
+
+        let (http_server, local_addr) =
+            http_server::build(self.config.http_address, self.config.http_port, metrics_reg)
+                .await?;
+
+        let http_server = http_server.with_graceful_shutdown(shutdown_requested);
+        tracing::info!("HTTP API is listening on {}", local_addr);
+
+        let actual_chain_id = self.rpc_client.get_chain_id().await?;
+        if actual_chain_id != self.config.chain_id {
+            return Err(eyre!(
+                "Expected to communicate with chain {} but got {} instead",
+                self.config.chain_id,
+                actual_chain_id
+            ));
+        }
+
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         self.initial_indexing(latest_finalized_block_number).await?;
@@ -90,11 +118,18 @@ impl App {
         let iteration_delay =
             std::time::Duration::from_secs(self.config.indexing_delay_between_iterations_in_secs);
 
-        loop {
-            tokio::time::sleep(iteration_delay).await;
+        tracing::info!("App state: {:#?}", self.state);
 
-            tracing::trace!("Starting indexing iteration");
+        tokio::select! {
+            res = http_server => { res.map_err(Into::into) },
+            //res = main_loop.run() => { res },
         }
+
+        //         loop {
+        //             tokio::time::sleep(iteration_delay).await;
+        //
+        //             tracing::trace!("Starting indexing iteration");
+        //         }
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(to_block = to_block))]
@@ -176,6 +211,11 @@ impl App {
 
         let mut ipnft_events = Vec::new();
         let mut tokenizer_events = Vec::new();
+
+        // TODO: The callback nature of `get_logs_ext` makes it hard to track the actual number of calls
+        // we should either integrate metrics into alloy as a middleware or perhaps convert this function
+        // to return a stream of log batches, so we could increment request counter per each batch
+        self.metrics.rpc_queries_num.inc();
 
         self.rpc_client
             .get_logs_ext(&filter, &mut |logs_chunk| {
