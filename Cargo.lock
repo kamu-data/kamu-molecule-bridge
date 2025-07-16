@@ -2545,6 +2545,7 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "alloy_ext",
+ "async-trait",
  "axum 0.8.4",
  "color-eyre",
  "confique",
@@ -2558,6 +2559,7 @@ dependencies = [
  "prometheus",
  "rustls",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2795,6 +2797,7 @@ dependencies = [
  "color-eyre",
  "multisig",
  "pretty_assertions",
+ "serde",
  "tokio",
 ]
 

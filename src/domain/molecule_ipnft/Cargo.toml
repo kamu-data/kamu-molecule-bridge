@@ -29,6 +29,7 @@ multisig = { workspace = true }
 
 alloy = { workspace = true }
 color-eyre = { workspace = true }
+serde = { workspace = true }
 
 
 [dev-dependencies]

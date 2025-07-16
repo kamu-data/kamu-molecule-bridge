@@ -36,7 +36,7 @@ pub trait KamuNodeApiClient {
 pub type DatasetID = String;
 pub type AccountID = String;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct MoleculeProjectEntry {
     pub offset: u64,
     pub ipnft_uid: IpnftUid,
@@ -57,7 +57,7 @@ pub struct VersionedFilesEntries {
 
 pub type ChangedVersionedFiles = HashMap<DatasetID, VersionedFileEntry>;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct VersionedFileEntry {
     pub offset: u64,
     pub path: String,

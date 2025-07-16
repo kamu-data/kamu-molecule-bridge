@@ -5,6 +5,7 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::Filter;
 use alloy_ext::prelude::*;
+use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::*;
@@ -13,10 +14,13 @@ use molecule_contracts::{IPNFT, IPToken, Synthesizer, Tokenizer};
 use molecule_ipnft::entities::*;
 use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
+use serde::{Serialize, Serializer};
+use serde_json::Value;
+use tokio::sync::RwLock;
 
 use crate::config::Config;
 use crate::http_server;
-use crate::http_server::HttpServeFuture;
+use crate::http_server::{HttpServeFuture, StateRequester};
 use crate::metrics::BridgeMetrics;
 
 pub struct App {
@@ -26,10 +30,10 @@ pub struct App {
     kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
     metrics: BridgeMetrics,
 
-    state: AppState,
+    state: Arc<RwLock<AppState>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 struct AppState {
     projects_dataset_offset: u64,
 
@@ -40,30 +44,55 @@ struct AppState {
     tokens_latest_indexed_block_number: u64,
 }
 
-#[derive(Debug)]
+#[async_trait]
+impl StateRequester for RwLock<AppState> {
+    async fn request_as_json(&self) -> Value {
+        let readable_state = self.read().await;
+        serde_json::to_value(&*readable_state).unwrap()
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct IpnftState {
     ipnft: IpnftEventProjection,
     project: Option<ProjectProjection>,
     token: Option<TokenProjection>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct ProjectProjection {
     entry: MoleculeProjectEntry,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
     removed_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct VersionedFileEntryWithMoleculeAccessLevel {
     entry: VersionedFileEntry,
     molecule_access_level: MoleculeAccessLevel,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct TokenProjection {
     token_address: Address,
+    #[serde(serialize_with = "serialize_hashmap_values_as_string")]
     holder_balances: HashMap<Address, U256>,
+}
+
+fn serialize_hashmap_values_as_string<S>(
+    hash_map: &HashMap<Address, U256>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    use serde::ser::SerializeMap;
+
+    let mut map = serializer.serialize_map(Some(hash_map.len()))?;
+    for (k, v) in hash_map {
+        map.serialize_entry(k, &v.to_string())?;
+    }
+    map.end()
 }
 
 impl App {
@@ -122,6 +151,7 @@ impl App {
             self.config.http_address,
             self.config.http_port,
             metrics_registry,
+            self.state.clone(),
         )
         .await?;
 
@@ -133,10 +163,19 @@ impl App {
     async fn main(&mut self) -> eyre::Result<()> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
-        self.initial_indexing(latest_finalized_block_number).await?;
-        self.initial_projects_loading().await?;
+        let mut initial_app_state = AppState::default();
+
+        self.initial_indexing(&mut initial_app_state, latest_finalized_block_number)
+            .await?;
+        self.initial_projects_loading(&mut initial_app_state)
+            .await?;
         // TODO: index multisig for whitelisted IPNFT
-        self.initial_access_applying().await?;
+        self.initial_access_applying(&initial_app_state).await?;
+
+        {
+            let mut writable_state = self.state.write().await;
+            *writable_state = initial_app_state;
+        }
 
         let iteration_delay =
             std::time::Duration::from_secs(self.config.indexing_delay_between_iterations_in_secs);
@@ -149,7 +188,11 @@ impl App {
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(to_block = to_block))]
-    async fn initial_indexing(&mut self, to_block: u64) -> eyre::Result<()> {
+    async fn initial_indexing(
+        &mut self,
+        app_state: &mut AppState,
+        to_block: u64,
+    ) -> eyre::Result<()> {
         let minimal_ipnft_tokenizer_birth_block = self
             .config
             .ipnft_contract_birth_block
@@ -165,7 +208,7 @@ impl App {
         let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
 
         for (ipnft_uid, event_projection) in initial_ipnft_event_projection_map {
-            self.state.ipnft_state_map.insert(
+            app_state.ipnft_state_map.insert(
                 ipnft_uid,
                 IpnftState {
                     ipnft: event_projection,
@@ -177,14 +220,16 @@ impl App {
 
         let ProcessTokenizerEventsResponse {
             minimal_ipt_birth_block,
-        } = self.process_tokenizer_events(tokenizer_events);
+        } = self.process_tokenizer_events(app_state, tokenizer_events);
 
-        self.state.ipnft_latest_indexed_block_number = to_block;
+        app_state.ipnft_latest_indexed_block_number = to_block;
 
-        let token_transfer_events = self.index_tokens(minimal_ipt_birth_block, to_block).await?;
-        self.process_token_transfer_events(token_transfer_events)?;
+        let token_transfer_events = self
+            .index_tokens(app_state, minimal_ipt_birth_block, to_block)
+            .await?;
+        self.process_token_transfer_events(app_state, token_transfer_events)?;
 
-        self.state.tokens_latest_indexed_block_number = to_block;
+        app_state.tokens_latest_indexed_block_number = to_block;
 
         Ok(())
     }
@@ -329,14 +374,14 @@ impl App {
     )]
     async fn index_tokens(
         &mut self,
+        app_state: &AppState,
         from_block: u64,
         to_block: u64,
     ) -> eyre::Result<Vec<IptEventTransfer>> {
         debug_assert!(to_block >= from_block);
 
         let filter = {
-            let addresses = self
-                .state
+            let addresses = app_state
                 .token_address_ipnft_uid_mapping
                 .keys()
                 .copied()
@@ -390,6 +435,7 @@ impl App {
 
     fn process_tokenizer_events(
         &mut self,
+        app_state: &mut AppState,
         tokenizer_events: Vec<TokenizerEvent>,
     ) -> ProcessTokenizerEventsResponse {
         let mut minimal_birth_block = 0;
@@ -403,7 +449,7 @@ impl App {
                     birth_block,
                 }) => {
                     let maybe_ipnft_state_pair =
-                        self.state
+                        app_state
                             .ipnft_state_map
                             .iter_mut()
                             .find(|(ipnft_uid, ipnft_state)| {
@@ -422,7 +468,7 @@ impl App {
                         holder_balances: HashMap::new(),
                     });
 
-                    self.state
+                    app_state
                         .token_address_ipnft_uid_mapping
                         .insert(token_address, *ipnft_uid);
 
@@ -440,10 +486,13 @@ impl App {
         }
     }
 
-    fn process_token_transfer_events(&mut self, events: Vec<IptEventTransfer>) -> eyre::Result<()> {
+    fn process_token_transfer_events(
+        &mut self,
+        app_state: &mut AppState,
+        events: Vec<IptEventTransfer>,
+    ) -> eyre::Result<()> {
         for event in events {
-            let Some(ipnft_uid) = self
-                .state
+            let Some(ipnft_uid) = app_state
                 .token_address_ipnft_uid_mapping
                 .get(&event.token_address)
             else {
@@ -451,8 +500,7 @@ impl App {
                 continue;
             };
 
-            let ipnft_state = self
-                .state
+            let ipnft_state = app_state
                 .ipnft_state_map
                 .get_mut(ipnft_uid)
                 .wrap_err_with(|| format!("IPNFT should be present: '{ipnft_uid}'"))?;
@@ -484,7 +532,7 @@ impl App {
     }
 
     #[tracing::instrument(level = "info", skip_all)]
-    async fn initial_projects_loading(&mut self) -> eyre::Result<()> {
+    async fn initial_projects_loading(&mut self, app_state: &mut AppState) -> eyre::Result<()> {
         let all_projects_entries = self
             .kamu_node_api_client
             .get_molecule_project_entries(0) // NOTE: full scan
@@ -517,7 +565,7 @@ impl App {
         for project_entry in all_projects_entries {
             projects_dataset_offset = project_entry.offset;
 
-            let Some(ipnft_state) = self.state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
+            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
             else {
                 // TODO: warning message -- project without IPNFT in blockchain
                 continue;
@@ -574,17 +622,17 @@ impl App {
             });
         }
 
-        self.state.projects_dataset_offset = projects_dataset_offset;
+        app_state.projects_dataset_offset = projects_dataset_offset;
 
         Ok(())
     }
 
     #[tracing::instrument(level = "info", skip_all)]
-    async fn initial_access_applying(&self) -> eyre::Result<()> {
+    async fn initial_access_applying(&self, app_state: &AppState) -> eyre::Result<()> {
         // TODO: Update when it's agreed
         const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
-        for ipnft_state in self.state.ipnft_state_map.values() {
+        for ipnft_state in app_state.ipnft_state_map.values() {
             // TODO: extract method with instrument fields (symbol, token_id, etc)
 
             if ipnft_state.ipnft.burnt {

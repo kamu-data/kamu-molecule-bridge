@@ -1,4 +1,5 @@
 use alloy::primitives::Address;
+use serde::Serialize;
 
 use crate::entities::ipnft_uid::IpnftUid;
 
@@ -39,7 +40,7 @@ pub struct IpnftEventBurnt {
     pub former_owner: Address,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct IpnftEventProjection {
     pub symbol: Option<String>,
     pub current_owner: Option<Address>,

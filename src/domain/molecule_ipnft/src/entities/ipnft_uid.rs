@@ -4,6 +4,7 @@ use std::str::FromStr;
 use alloy::primitives::{Address, U256};
 use color_eyre::eyre;
 use color_eyre::eyre::{Context, bail};
+use serde::{Serialize, Serializer};
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 pub struct IpnftUid {
@@ -14,6 +15,15 @@ pub struct IpnftUid {
 impl Display for IpnftUid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}_{}", self.ipnft_address, self.token_id)
+    }
+}
+
+impl Serialize for IpnftUid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
