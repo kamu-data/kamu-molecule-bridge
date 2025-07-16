@@ -1,0 +1,7 @@
+mutation ApplyAccountDatasetRelations($operations: [AccountDatasetRelationOperation!]!) {
+  collaboration {
+    applyAccountDatasetRelations(operations: $operations) {
+      message
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{{- if .Values.app.alerts.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kamu-molecule-bridge.fullname" . }}
+  labels:
+    {{- include "kamu-molecule-bridge.labels" . | nindent 4 }}
+spec:
+  groups:
+  - name: {{ include "kamu-molecule-bridge.fullname" . }}
+    rules: []
+{{- end }}
