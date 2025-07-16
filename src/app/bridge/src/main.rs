@@ -10,24 +10,17 @@ use multisig_safe_wallet::services::SafeWalletApiService;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BINARY_NAME: &str = env!("CARGO_PKG_NAME");
+const DEFAULT_RUST_LOG: &str =
+    "debug,alloy_transport_http=info,alloy_rpc_client=info,reqwest=info,hyper=info,h2=info";
 
 fn main() -> eyre::Result<()> {
-    // TODO: Currently we are compiling `rustls` with both `ring` and `aws-cl-rs`
-    // backends and since v0.23 `rustls` requires to disambiguate between which
-    // one to use. Eventually we should unify all dependencies around the same
-    // backend, but a number of them don't yet expose the necessary feature flags.
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("Could not install default TLS provider");
-
     color_eyre::install()?;
-    // TODO: Configure logging layout
-    use tracing_subscriber::fmt::format::FmtSpan;
-    tracing_subscriber::fmt()
-        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-        .pretty()
-        .init();
+
     dotenv()?;
+
+    init_tls();
+
+    let _guard = init_observability();
 
     let config = Config::builder()
         .env()
@@ -78,4 +71,29 @@ async fn build_rpc_client(config: &Config) -> eyre::Result<DynProvider> {
         .erased();
 
     Ok(provider)
+}
+
+fn init_tls() {
+    // TODO: Currently we are compiling `rustls` with both `ring` and `aws-cl-rs`
+    // backends and since v0.23 `rustls` requires to disambiguate between which
+    // one to use. Eventually we should unify all dependencies around the same
+    // backend, but a number of them don't yet expose the necessary feature flags.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Could not install default TLS provider");
+}
+
+fn init_observability() -> observability::init::Guard {
+    // Configure tracing and opentelemetry
+    let guard = observability::init::auto(
+        observability::config::Config::from_env_with_prefix("KAMU_OTEL_")
+            .with_service_name(BINARY_NAME)
+            .with_service_version(VERSION)
+            .with_default_log_levels(DEFAULT_RUST_LOG),
+    );
+
+    // Redirect panics to tracing
+    observability::panic_handler::set_hook_trace_panics(false);
+
+    guard
 }
