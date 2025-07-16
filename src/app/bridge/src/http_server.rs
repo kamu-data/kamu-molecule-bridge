@@ -2,18 +2,17 @@ use std::net::SocketAddr;
 
 use color_eyre::eyre;
 
+pub type HttpServeFuture = axum::serve::Serve<
+    tokio::net::TcpListener,
+    axum::routing::IntoMakeService<axum::Router>,
+    axum::Router,
+>;
+
 pub async fn build(
     address: std::net::IpAddr,
     http_port: u16,
     metrics_reg: prometheus::Registry,
-) -> eyre::Result<(
-    axum::serve::Serve<
-        tokio::net::TcpListener,
-        axum::routing::IntoMakeService<axum::Router>,
-        axum::Router,
-    >,
-    SocketAddr,
-)> {
+) -> eyre::Result<(HttpServeFuture, SocketAddr)> {
     let app = axum::Router::new()
         .route("/system/health", axum::routing::get(health_handler))
         .route(

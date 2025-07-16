@@ -16,6 +16,7 @@ use multisig::services::MultisigResolver;
 
 use crate::config::Config;
 use crate::http_server;
+use crate::http_server::HttpServeFuture;
 use crate::metrics::BridgeMetrics;
 
 pub struct App {
@@ -88,17 +89,7 @@ impl App {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let metrics_reg =
-            prometheus::Registry::new_custom(Some("kamu_molecule_bridge".into()), None).unwrap();
-        self.metrics.register(&metrics_reg)?;
-
-        let (http_server, local_addr) =
-            http_server::build(self.config.http_address, self.config.http_port, metrics_reg)
-                .await?;
-
-        let http_server = http_server.with_graceful_shutdown(shutdown_requested);
-        tracing::info!("HTTP API is listening on {local_addr}");
-
+        // Sanity checks
         let actual_chain_id = self.rpc_client.get_chain_id().await?;
         if actual_chain_id != self.config.chain_id {
             bail!(
@@ -107,6 +98,39 @@ impl App {
             );
         }
 
+        // Initialization
+        let metrics_reg =
+            prometheus::Registry::new_custom(Some("kamu_molecule_bridge".into()), None).unwrap();
+        self.metrics.register(&metrics_reg)?;
+
+        let http_serve_future = self.build_http_server(metrics_reg.clone()).await?;
+        let http_server = http_serve_future.with_graceful_shutdown(shutdown_requested);
+
+        // Asynchronous execution: HTTP server and indexing
+        tokio::select! {
+            res = http_server => { res.map_err(Into::into) },
+            res = self.main() => { res },
+        }
+    }
+
+    #[tracing::instrument(level = "debug", skip_all)]
+    async fn build_http_server(
+        &mut self,
+        metrics_registry: prometheus::Registry,
+    ) -> eyre::Result<HttpServeFuture> {
+        let (http_server, local_addr) = http_server::build(
+            self.config.http_address,
+            self.config.http_port,
+            metrics_registry,
+        )
+        .await?;
+
+        tracing::info!("HTTP API is listening on {local_addr}");
+
+        Ok(http_server)
+    }
+
+    async fn main(&mut self) -> eyre::Result<()> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         self.initial_indexing(latest_finalized_block_number).await?;
@@ -117,18 +141,11 @@ impl App {
         let iteration_delay =
             std::time::Duration::from_secs(self.config.indexing_delay_between_iterations_in_secs);
 
-        tracing::info!("App state: {:#?}", self.state);
+        loop {
+            tokio::time::sleep(iteration_delay).await;
 
-        tokio::select! {
-            res = http_server => { res.map_err(Into::into) },
-            //res = main_loop.run() => { res },
+            tracing::trace!("Starting indexing iteration");
         }
-
-        //         loop {
-        //             tokio::time::sleep(iteration_delay).await;
-        //
-        //             tracing::trace!("Starting indexing iteration");
-        //         }
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(to_block = to_block))]
@@ -338,6 +355,11 @@ impl App {
         };
 
         let mut events = Vec::new();
+
+        // TODO: The callback nature of `get_logs_ext` makes it hard to track the actual number of calls
+        // we should either integrate metrics into alloy as a middleware or perhaps convert this function
+        // to return a stream of log batches, so we could increment request counter per each batch
+        self.metrics.rpc_queries_num.inc();
 
         self.rpc_client
             .get_logs_ext(&filter, &mut |logs_chunk| {
