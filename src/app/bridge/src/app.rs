@@ -5,7 +5,7 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::Filter;
 use alloy_ext::prelude::*;
-use color_eyre::eyre::{self, eyre};
+use color_eyre::eyre;
 use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
@@ -97,15 +97,14 @@ impl App {
                 .await?;
 
         let http_server = http_server.with_graceful_shutdown(shutdown_requested);
-        tracing::info!("HTTP API is listening on {}", local_addr);
+        tracing::info!("HTTP API is listening on {local_addr}");
 
         let actual_chain_id = self.rpc_client.get_chain_id().await?;
         if actual_chain_id != self.config.chain_id {
-            return Err(eyre!(
-                "Expected to communicate with chain {} but got {} instead",
+            bail!(
+                "Expected to communicate with chain ID '{}' but got '{actual_chain_id}' instead",
                 self.config.chain_id,
-                actual_chain_id
-            ));
+            );
         }
 
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
@@ -618,12 +617,12 @@ impl App {
             if let Some(token) = &ipnft_state.token {
                 for (holder, balance) in &token.holder_balances {
                     if *balance > IPT_ACCESS_THRESHOLD {
-                        holders.insert(holder.clone());
+                        holders.insert(*holder);
                     } else {
-                        revoke_access_accounts.insert(holder.clone());
+                        revoke_access_accounts.insert(*holder);
                     }
                 }
-            };
+            }
 
             // Sanity checks
             for owner in &current_owners {
