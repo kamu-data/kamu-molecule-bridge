@@ -5,6 +5,7 @@ use color_eyre::eyre;
 pub async fn build(
     address: std::net::IpAddr,
     http_port: u16,
+    metrics_reg: prometheus::Registry,
 ) -> eyre::Result<(
     axum::serve::Serve<
         tokio::net::TcpListener,
@@ -19,8 +20,8 @@ pub async fn build(
             "/system/metrics",
             axum::routing::get(observability::metrics::metrics_handler_raw),
         )
-        .fallback(observability::axum::unknown_fallback_handler);
-    //.layer(axum::extract::Extension(catalog));
+        .fallback(observability::axum::unknown_fallback_handler)
+        .layer(axum::extract::Extension(metrics_reg));
 
     let addr = std::net::SocketAddr::from((address, http_port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

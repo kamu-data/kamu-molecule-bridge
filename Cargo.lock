@@ -2555,6 +2555,7 @@ dependencies = [
  "multisig",
  "multisig_safe_wallet",
  "observability",
+ "prometheus",
  "rustls",
  "serde",
  "tokio",
