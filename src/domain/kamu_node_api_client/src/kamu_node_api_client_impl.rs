@@ -13,7 +13,7 @@ use crate::did_phk::DidPhk;
 use crate::{
     AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
     DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry, VecToString, VersionedFileEntry, VersionedFilesEntriesMap,
+    MoleculeProjectEntry, VersionedFileEntry, VersionedFilesEntriesMap,
 };
 
 pub struct KamuNodeApiClientImpl {
@@ -271,12 +271,22 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         Ok(map)
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(did_pkhs = did_pkhs.to_string()))]
+    #[tracing::instrument(level = "debug", skip_all, fields(did_pkhs_count = did_pkhs.len()))]
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
+        // TODO: batches? we have ~700 holders for some IPNFT
+
+        // TODO: remove when dev env will be setup
+        tracing::warn!(
+            "False create_wallet_accounts() call: did_pkhs: {:#?}",
+            did_pkhs.iter().map(ToString::to_string).collect::<Vec<_>>()
+        );
+
+        /*
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
         })
         .await?;
+        */
 
         Ok(())
     }
@@ -286,12 +296,20 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         operations: Vec<AccountDatasetRelationOperation>,
     ) -> color_eyre::Result<()> {
+        // TODO: batches? we have ~1400 operations for some IPNFT
+
+        // TODO: remove when dev env will be setup
+
+        tracing::warn!("False apply_account_dataset_relations() call: operations: {operations:#?}");
+
+        /*
         let operations = operations.into_iter().map(Into::into).collect();
 
         self.gql_api_call::<ApplyAccountDatasetRelations>(
             apply_account_dataset_relations::Variables { operations },
         )
         .await?;
+        */
 
         Ok(())
     }

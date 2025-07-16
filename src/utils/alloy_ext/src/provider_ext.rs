@@ -35,6 +35,7 @@ impl ProviderExt for DynProvider {
     where
         F: FnMut(LogsChunk) -> eyre::Result<()> + Send + Sync,
     {
+        // TODO: retry logic
         // TODO: Handle RPC errors (too many events)
         let logs = self.get_logs(filter).await?;
 
@@ -48,6 +49,7 @@ impl ProviderExt for DynProvider {
     }
 
     async fn latest_finalized_block_number(&self) -> eyre::Result<u64> {
+        // TODO: retry logic
         let block = self
             .get_block_by_number(BlockNumberOrTag::Finalized)
             .await?
