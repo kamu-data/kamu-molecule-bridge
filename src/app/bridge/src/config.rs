@@ -4,6 +4,16 @@ use alloy::primitives::Address;
 //       - use https://github.com/Keats/validator for field validation
 #[derive(confique::Config, Debug)]
 pub struct Config {
+    /// Interface to listen for HTTP admin traffic on
+    #[config(env = "KAMU_BRIDGE_HTTP_ADDRESS")]
+    #[config(default = "127.0.0.1")]
+    pub http_address: std::net::IpAddr,
+
+    /// Port to listen for HTTP admin traffic on
+    #[config(env = "KAMU_BRIDGE_HTTP_PORT")]
+    #[config(default = 0)]
+    pub http_port: u16,
+
     #[config(env = "KAMU_NODE_GQL_API_ENDPOINT")]
     pub kamu_node_gql_api_endpoint: String,
     #[config(env = "KAMU_NODE_TOKEN")]

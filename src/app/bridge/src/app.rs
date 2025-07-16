@@ -15,6 +15,7 @@ use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
 
 use crate::config::Config;
+use crate::http_server;
 
 pub struct App<'a> {
     config: Config,
@@ -83,7 +84,16 @@ impl<'a> App<'a> {
     }
 
     #[tracing::instrument(level = "info", skip_all)]
-    pub async fn run(&mut self) -> eyre::Result<()> {
+    pub async fn run<F>(&mut self, shutdown_requested: F) -> eyre::Result<()>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let (http_server, local_addr) =
+            http_server::build(self.config.http_address, self.config.http_port).await?;
+
+        let http_server = http_server.with_graceful_shutdown(shutdown_requested);
+        tracing::info!("HTTP API is listening on {}", local_addr);
+
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         self.initial_indexing(latest_finalized_block_number).await?;
@@ -91,7 +101,10 @@ impl<'a> App<'a> {
 
         tracing::info!("App state: {:#?}", self.state);
 
-        Ok(())
+        tokio::select! {
+            res = http_server => { res.map_err(Into::into) },
+            //res = main_loop.run() => { res },
+        }
     }
 
     async fn initial_indexing(&mut self, to_block: u64) -> eyre::Result<()> {

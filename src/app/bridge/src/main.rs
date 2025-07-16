@@ -60,7 +60,9 @@ async fn main_async(config: Config) -> eyre::Result<()> {
 
     tracing::info!(version = VERSION, "Running {BINARY_NAME}");
 
-    app.run().await?;
+    let shutdown_requested = trap_signals();
+
+    app.run(shutdown_requested).await?;
 
     Ok(())
 }
@@ -101,4 +103,32 @@ fn init_observability() -> observability::init::Guard {
     observability::panic_handler::set_hook_trace_panics(false);
 
     guard
+}
+
+async fn trap_signals() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::warn!("SIGINT signal received, shutting down gracefully");
+        },
+        _ = terminate => {
+            tracing::warn!("SIGTERM signal received, shutting down gracefully");
+        },
+    }
 }

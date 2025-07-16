@@ -34,6 +34,7 @@ multisig = { workspace = true }
 multisig_safe_wallet = { workspace = true }
 
 alloy = { workspace = true }
+axum = { workspace = true }
 color-eyre = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }

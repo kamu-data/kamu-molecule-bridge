@@ -43,6 +43,10 @@ alloy = { version = "1", default-features = false, features = [
     #"sol-types",
 ] }
 async-trait = { version = "0.1", default-features = false }
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "tokio",
+] }
 # TODO: use eyre and color-eyre only in app crate
 # TODO: remove extra features
 #       https://github.com/eyre-rs/eyre/tree/master/color-eyre
@@ -70,6 +74,7 @@ tokio = { version = "1", default-features = false, features = [
     "rt",
     "rt-multi-thread",
     "macros",
+    "signal",
 ] }
 
 
