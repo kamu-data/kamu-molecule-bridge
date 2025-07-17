@@ -682,32 +682,22 @@ impl App {
             }
 
             // Create accounts
-            // TODO: extract methods
             let mut current_owners_did_pkhs = Vec::with_capacity(current_owners.len());
             for current_owner in current_owners {
-                let account = DidPhk::new_from_chain_id(
-                    1, // TODO: replace with chain id after rebase
-                    current_owner,
-                )?;
+                let account = self.create_did_phk(current_owner)?;
                 current_owners_did_pkhs.push(account);
             }
 
             let mut holders_did_pkhs = Vec::with_capacity(holders.len());
             for holder in holders {
-                let account = DidPhk::new_from_chain_id(
-                    1, // TODO: replace with chain id after rebase
-                    holder,
-                )?;
+                let account = self.create_did_phk(holder)?;
                 holders_did_pkhs.push(account);
             }
 
             let mut revoke_access_accounts_did_pkh =
                 Vec::with_capacity(revoke_access_accounts.len());
             for holder in revoke_access_accounts {
-                let account = DidPhk::new_from_chain_id(
-                    1, // TODO: replace with chain id after rebase
-                    holder,
-                )?;
+                let account = self.create_did_phk(holder)?;
                 revoke_access_accounts_did_pkh.push(account);
             }
 
@@ -844,6 +834,10 @@ impl App {
         let owners = maybe_owners.unwrap_or_else(|| HashSet::from([address]));
 
         Ok((owners, multisig))
+    }
+
+    fn create_did_phk(&self, address: Address) -> eyre::Result<DidPhk> {
+        DidPhk::new_from_chain_id(self.config.chain_id, address)
     }
 }
 
