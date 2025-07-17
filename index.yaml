@@ -1,0 +1,24 @@
+apiVersion: v1
+entries:
+  kamu-molecule-bridge:
+  - apiVersion: v2
+    appVersion: 0.1.1
+    created: "2025-07-17T22:57:52.29644285Z"
+    description: Molecule Labs connector to Kamu
+    digest: 3ac6ca1d37b815ee323d77f48079f5f25d0da80d4e0fdb5ab8c137682556b184
+    home: https://kamu.dev
+    icon: https://www.kamu.dev/images/kamu_logo_icon_bg_square.png
+    keywords:
+    - desci
+    - web3
+    - molecule
+    - kamu
+    - opendatafabric
+    name: kamu-molecule-bridge
+    sources:
+    - https://github.com/kamu-data/kamu-node/
+    type: application
+    urls:
+    - https://github.com/kamu-data/kamu-molecule-bridge/releases/download/kamu-molecule-bridge-0.1.1/kamu-molecule-bridge-0.1.1.tgz
+    version: 0.1.1
+generated: "2025-07-17T22:57:52.296448721Z"
