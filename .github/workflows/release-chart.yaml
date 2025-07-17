@@ -34,5 +34,5 @@ jobs:
             helm dependency update "$dir"
             helm package "$dir" --destination packaged
             chart_package=$(ls packaged/${chart_name}-*.tgz)
-            helm push "$chart_package" oci://ghcr.io/${{ github.repository_owner }}/helm-charts
+            helm push "$chart_package" oci://ghcr.io/${{ github.repository_owner }}/${{ github.repository }}-charts
           done
