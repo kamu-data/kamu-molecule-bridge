@@ -3,6 +3,7 @@ on:
   push:
     paths-ignore:
       - "docs/**"
+      - "charts/**"
       - "images/**"
       - "**.md"
   # manual trigger

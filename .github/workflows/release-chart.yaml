@@ -1,0 +1,38 @@
+name: release-chart
+
+on:
+  push:
+    paths:
+      - 'charts/**'
+    branches:
+      - master
+  workflow_dispatch: {}
+
+jobs:
+  push-helm-chart:
+    name: Push Helm Chart
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package and Push Charts
+        run: |
+          for dir in charts/*/ ; do
+            chart_name=$(basename "$dir")
+            helm dependency update "$dir"
+            helm package "$dir" --destination packaged
+            chart_package=$(ls packaged/${chart_name}-*.tgz)
+            helm push "$chart_package" oci://ghcr.io/${{ github.repository_owner }}/helm-charts
+          done
