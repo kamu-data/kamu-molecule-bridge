@@ -14,4 +14,6 @@ Recommendation: for ease of reading, use the following order:
 
 ## [Unreleased]
 
-- TODO
+## [0.1.0]
+### Added
+- Initial bridge version that indexes the state from blockchain but does not apply it to the kamu node yet.
