@@ -90,6 +90,32 @@ pub struct AccountDatasetRelationOperation {
     pub dataset_id: AccountID,
 }
 
+impl AccountDatasetRelationOperation {
+    pub fn reader_access(account_id: AccountID, dataset_id: DatasetID) -> Self {
+        Self {
+            account_id,
+            operation: DatasetRoleOperation::Set(DatasetAccessRole::Reader),
+            dataset_id,
+        }
+    }
+
+    pub fn maintainer_access(account_id: AccountID, dataset_id: DatasetID) -> Self {
+        Self {
+            account_id,
+            operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
+            dataset_id,
+        }
+    }
+
+    pub fn revoke_access(account_id: AccountID, dataset_id: DatasetID) -> Self {
+        Self {
+            account_id,
+            operation: DatasetRoleOperation::Unset,
+            dataset_id,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum DatasetRoleOperation {
     Set(DatasetAccessRole),

@@ -726,94 +726,82 @@ impl App {
 
             for core_file_dataset_id in core_file_dataset_ids {
                 for owner in &current_owners_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: owner.to_string(),
-                        operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
-                        dataset_id: core_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::maintainer_access(
+                        owner.to_string(),
+                        core_file_dataset_id.clone(),
+                    ));
                 }
                 for holder in &holders_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: holder.to_string(),
-                        operation: DatasetRoleOperation::Set(DatasetAccessRole::Reader),
-                        dataset_id: core_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::reader_access(
+                        holder.to_string(),
+                        core_file_dataset_id.clone(),
+                    ));
                 }
                 for revoke_access_account in &revoke_access_accounts_did_pkh {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: revoke_access_account.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: core_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        revoke_access_account.to_string(),
+                        core_file_dataset_id.clone(),
+                    ));
                 }
             }
             for owner_file_dataset_id in owner_file_dataset_ids {
                 for owner in &current_owners_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: owner.to_string(),
-                        operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
-                        dataset_id: owner_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::maintainer_access(
+                        owner.to_string(),
+                        owner_file_dataset_id.clone(),
+                    ));
                 }
                 for holder in &holders_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: holder.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: owner_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        holder.to_string(),
+                        owner_file_dataset_id.clone(),
+                    ));
                 }
                 for revoke_access_account in &revoke_access_accounts_did_pkh {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: revoke_access_account.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: owner_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        revoke_access_account.to_string(),
+                        owner_file_dataset_id.clone(),
+                    ));
                 }
             }
             for holder_file_dataset_id in holder_file_dataset_ids {
                 for owner in &current_owners_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: owner.to_string(),
-                        operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
-                        dataset_id: holder_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::maintainer_access(
+                        owner.to_string(),
+                        holder_file_dataset_id.clone(),
+                    ));
                 }
                 for holder in &holders_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: holder.to_string(),
-                        operation: DatasetRoleOperation::Set(DatasetAccessRole::Reader),
-                        dataset_id: holder_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::reader_access(
+                        holder.to_string(),
+                        holder_file_dataset_id.clone(),
+                    ));
                 }
                 for revoke_access_account in &revoke_access_accounts_did_pkh {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: revoke_access_account.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: holder_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        revoke_access_account.to_string(),
+                        holder_file_dataset_id.clone(),
+                    ));
                 }
             }
             for removed_file_dataset_id in removed_file_dataset_ids {
                 for owner in &current_owners_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: owner.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: removed_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        owner.to_string(),
+                        removed_file_dataset_id.clone(),
+                    ));
                 }
                 for holder in &holders_did_pkhs {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: holder.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: removed_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        holder.to_string(),
+                        removed_file_dataset_id.clone(),
+                    ));
                 }
                 for revoke_access_account in &revoke_access_accounts_did_pkh {
-                    operations.push(AccountDatasetRelationOperation {
-                        account_id: revoke_access_account.to_string(),
-                        operation: DatasetRoleOperation::Unset,
-                        dataset_id: removed_file_dataset_id.clone(),
-                    });
+                    operations.push(AccountDatasetRelationOperation::revoke_access(
+                        revoke_access_account.to_string(),
+                        removed_file_dataset_id.clone(),
+                    ));
                 }
             }
 
@@ -839,6 +827,38 @@ impl App {
     fn create_did_phk(&self, address: Address) -> eyre::Result<DidPhk> {
         DidPhk::new_from_chain_id(self.config.chain_id, address)
     }
+
+    // fn extend_operations(&self) {
+    //     // operations
+    //     // core_file_dataset_ids
+    //     // current_owners_did_pkhs
+    //     // current_owners_did_pkhs
+    //     // revoke_access_accounts_did_pkh
+    //
+    //     for core_file_dataset_id in core_file_dataset_ids {
+    //         for owner in &current_owners_did_pkhs {
+    //             operations.push(AccountDatasetRelationOperation {
+    //                 account_id: owner.to_string(),
+    //                 operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
+    //                 dataset_id: core_file_dataset_id.clone(),
+    //             });
+    //         }
+    //         for holder in &holders_did_pkhs {
+    //             operations.push(AccountDatasetRelationOperation {
+    //                 account_id: holder.to_string(),
+    //                 operation: DatasetRoleOperation::Set(DatasetAccessRole::Reader),
+    //                 dataset_id: core_file_dataset_id.clone(),
+    //             });
+    //         }
+    //         for revoke_access_account in &revoke_access_accounts_did_pkh {
+    //             operations.push(AccountDatasetRelationOperation {
+    //                 account_id: revoke_access_account.to_string(),
+    //                 operation: DatasetRoleOperation::Unset,
+    //                 dataset_id: core_file_dataset_id.clone(),
+    //             });
+    //         }
+    //     }
+    // }
 }
 
 struct IndexIpnftAndTokenizerContractsResponse {
