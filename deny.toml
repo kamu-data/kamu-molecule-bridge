@@ -7,6 +7,7 @@ skip-tree = [
     { name = "itertools" },
     { name = "rand" },           # Waiting for alloy and other crates to upgrade to 0.9+
     { name = "regex-automata" }, # Waiting for matchers crate to upgrade
+    { name = "rustix" },
     { name = "thiserror" },
     { name = "webpki-roots" },   # No actual duplication, as v0 package was made to depend on v1
 ]

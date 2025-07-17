@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use alloy::providers::fillers::ChainIdFiller;
 use alloy::providers::{DynProvider, Provider};
+use clap::Parser as _;
 use color_eyre::eyre;
-use dotenv::dotenv;
+use kamu_molecule_bridge::cli::Cli;
 use kamu_molecule_bridge::prelude::*;
 use kamu_node_api_client::KamuNodeApiClientImpl;
 use multisig_safe_wallet::services::SafeWalletApiService;
@@ -21,17 +22,20 @@ fn main() -> eyre::Result<()> {
     //      - https://github.com/eyre-rs/eyre/tree/master/color-spantrace
     color_eyre::install()?;
 
-    dotenv()?;
+    // FIXME: Not handling errors due to poor API that doesn't allow to easily
+    // differentiate .env file's ansence from other errors
+    dotenv::dotenv().ok();
+
+    let args = Cli::parse();
 
     init_tls();
 
     let _guard = init_observability();
 
-    let config = Config::builder()
-        .env()
-        // TODO: Add support for config file
-        // .file(&args.config)
-        .load()?;
+    // Loads configuration from env and config file
+    // Config file is optional.
+    // Environment variables take precedence over the config.
+    let config = Config::builder().env().file(&args.config).load()?;
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

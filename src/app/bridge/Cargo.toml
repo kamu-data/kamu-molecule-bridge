@@ -46,9 +46,18 @@ tracing = { workspace = true }
 observability = { workspace = true }
 
 confique = { version = "0.3", default-features = false, features = ["yaml"] }
+clap = { version = "4", default-features = false, features = [
+    "cargo",
+    "color",
+    "derive",
+    "error-context",
+    "help",
+    "std",
+    "suggestions",
+    "usage",
+    "wrap_help",
+] }
 dotenv = { version = "0.15", default-features = false, features = [] }
-# TODO: remove extra features
-tracing-subscriber = { version = "0.3", default-features = true }
 
 
 [dev-dependencies]
