@@ -1,5 +1,15 @@
 [bans]
 multiple-versions = "deny"
+skip-tree = [
+    { name = "axum" },           # TODO: Need to upgrade to latest tonic
+    { name = "hashbrown" },
+    { name = "heck" },
+    { name = "itertools" },
+    { name = "rand" },           # Waiting for alloy and other crates to upgrade to 0.9+
+    { name = "regex-automata" }, # Waiting for matchers crate to upgrade
+    { name = "thiserror" },
+    { name = "webpki-roots" },   # No actual duplication, as v0 package was made to depend on v1
+]
 
 # We should always specify version ranges
 wildcards = "deny"
@@ -21,7 +31,6 @@ allow = [
     "ISC",
     "MIT",
     "MIT-0",
-    "MPL-2.0",
     "OpenSSL",
     "Unicode-3.0",
     "Unlicense",
@@ -33,8 +42,16 @@ private = { ignore = true }
 [sources]
 unknown-git = "deny"
 unknown-registry = "deny"
+allow-org = { github = ["kamu-data"] }
 
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+    # dotenv is Unmaintained
+    # https://rustsec.org/advisories/RUSTSEC-2021-0141
+    "RUSTSEC-2021-0141",
+    # paste - no longer maintained
+    # https://rustsec.org/advisories/RUSTSEC-2024-0436
+    "RUSTSEC-2024-0436",
+]

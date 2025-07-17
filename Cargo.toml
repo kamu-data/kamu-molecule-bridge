@@ -17,30 +17,25 @@ resolver = "3"
 
 [workspace.dependencies]
 # App
-bridge = { path = "src/app/bridge", default-features = false }
+bridge = { version = "0.1.0", path = "src/app/bridge", default-features = false }
 # Domain
-kamu_node_api_client = { path = "src/domain/kamu_node_api_client", default-features = false }
-molecule_ipnft = { path = "src/domain/molecule_ipnft", default-features = false }
-multisig = { path = "src/domain/multisig", default-features = false }
+kamu_node_api_client = { version = "0.1.0", path = "src/domain/kamu_node_api_client", default-features = false }
+molecule_ipnft = { version = "0.1.0", path = "src/domain/molecule_ipnft", default-features = false }
+multisig = { version = "0.1.0", path = "src/domain/multisig", default-features = false }
 # Infra
-molecule_contracts = { path = "src/infra/molecule_contracts", default-features = false }
-multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-features = false }
+molecule_contracts = { version = "0.1.0", path = "src/infra/molecule_contracts", default-features = false }
+multisig_safe_wallet = { version = "0.1.0", path = "src/infra/multisig_safe_wallet", default-features = false }
 # Utils
-alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
+alloy_ext = { version = "0.1.0", path = "src/utils/alloy_ext", default-features = false }
 
-# TODO: remove extra features
-#       needed feature: contract
 alloy = { version = "1", default-features = false, features = [
     "std",
     "contract",
     "network",
-    #"node-bindings",
     "provider-http",
     "provider-ws",
     "reqwest-rustls-tls",
     "rpc-types-eth",
-    #"signer-local",
-    #"sol-types",
 ] }
 async-trait = { version = "0.1", default-features = false }
 axum = { version = "0.8", default-features = false, features = [
@@ -67,8 +62,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 rustls = { version = "0.23", default-features = false, features = [
     "aws-lc-rs",
 ] }
-# TODO: remove extra features
-tracing = { version = "0.1", default-features = true }
+tracing = { version = "0.1", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = [
