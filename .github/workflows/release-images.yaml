@@ -30,11 +30,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build image
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd images/kamu-molecule-bridge/
-          make build
+          make download build
 
       - name: Publish image
         run: |
           cd images/kamu-molecule-bridge/
-          make push
+          make push clean

@@ -8,7 +8,7 @@ ADD https://github.com/krallin/tini/releases/download/v0.19.0/tini-amd64 /usr/bi
 RUN chmod +x /usr/bin/tini
 
 # App
-ADD https://github.com/kamu-data/kamu-molecule-bridge/releases/download/v${APP_VERSION}/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz /opt/kamu/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz
+COPY artifacts/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz /opt/kamu/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz
 RUN tar -xf kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz && \
     chmod +x kamu-molecule-bridge-x86_64-unknown-linux-gnu/kamu-molecule-bridge && \
     mv kamu-molecule-bridge-x86_64-unknown-linux-gnu/kamu-molecule-bridge /opt/kamu/ && \

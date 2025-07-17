@@ -2,6 +2,15 @@ IMAGE_REPO = ghcr.io/kamu-data
 APP_VERSION = $(shell cargo metadata --format-version 1 | jq -r '.packages[] | select( .name == "kamu-molecule-bridge") | .version')
 
 
+.PHONY: download
+download:
+	mkdir -p artifacts
+	curl -sSL \
+		-H "Authorization: token $(GITHUB_TOKEN)" \
+		o artifacts/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz \
+		https://github.com/kamu-data/kamu-molecule-bridge/releases/download/v$(APP_VERSION)/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz
+
+
 .PHONY: build
 build:
 	docker build \
@@ -13,3 +22,8 @@ build:
 .PHONY: push
 push:
 	docker push $(IMAGE_REPO)/kamu-molecule-bridge:$(APP_VERSION)
+
+
+.PHONY: clean
+clean:
+	rm -rf artifacts
