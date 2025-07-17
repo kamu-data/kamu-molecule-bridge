@@ -7,7 +7,7 @@ download:
 	mkdir -p artifacts
 	curl -sSL \
 		-H "Authorization: token $(GITHUB_TOKEN)" \
-		o artifacts/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz \
+		-o artifacts/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz \
 		https://github.com/kamu-data/kamu-molecule-bridge/releases/download/v$(APP_VERSION)/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz
 
 
