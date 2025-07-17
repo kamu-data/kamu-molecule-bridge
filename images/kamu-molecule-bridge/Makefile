@@ -5,10 +5,10 @@ APP_VERSION = $(shell cargo metadata --format-version 1 | jq -r '.packages[] | s
 .PHONY: download
 download:
 	mkdir -p artifacts
-	wget \
-		--header "Authorization: token $(GITHUB_TOKEN)" \
-		-O artifacts/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz \
-		https://github.com/kamu-data/kamu-molecule-bridge/releases/download/v$(APP_VERSION)/kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz
+	gh release download v$(APP_VERSION) \
+		--repo kamu-data/kamu-molecule-bridge \
+		--pattern "kamu-molecule-bridge-x86_64-unknown-linux-gnu.tar.gz" \
+		--dir artifacts
 
 
 .PHONY: build
