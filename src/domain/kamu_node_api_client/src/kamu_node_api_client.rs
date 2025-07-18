@@ -40,6 +40,7 @@ pub type AccountID = String;
 pub struct MoleculeProjectEntry {
     pub offset: u64,
     pub ipnft_uid: IpnftUid,
+    pub symbol: String,
     pub project_account_id: AccountID,
     pub data_room_dataset_id: DatasetID,
     pub announcements_dataset_id: DatasetID,
@@ -88,6 +89,32 @@ pub struct AccountDatasetRelationOperation {
     pub account_id: DatasetID,
     pub operation: DatasetRoleOperation,
     pub dataset_id: AccountID,
+}
+
+impl AccountDatasetRelationOperation {
+    pub fn reader_access(account_id: AccountID, dataset_id: DatasetID) -> Self {
+        Self {
+            account_id,
+            operation: DatasetRoleOperation::Set(DatasetAccessRole::Reader),
+            dataset_id,
+        }
+    }
+
+    pub fn maintainer_access(account_id: AccountID, dataset_id: DatasetID) -> Self {
+        Self {
+            account_id,
+            operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
+            dataset_id,
+        }
+    }
+
+    pub fn revoke_access(account_id: AccountID, dataset_id: DatasetID) -> Self {
+        Self {
+            account_id,
+            operation: DatasetRoleOperation::Unset,
+            dataset_id,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

@@ -97,6 +97,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             SELECT offset,
                    account_id AS project_account_id,
                    ipnft_uid,
+                   ipnft_symbol,
                    data_room_dataset_id,
                    announcements_dataset_id
             FROM '{molecule_projects}'
@@ -147,7 +148,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             );
 
             let data_rooms_with_entries = self
-                .sql_query::<Vec<DataRoomWithEntryDto>>(sql)
+                .sql_query::<Vec<DataRoomWithEntriesDto>>(sql)
                 .await?
                 .into_iter()
                 .map(|dto| dto.data_room_dataset_id)
@@ -238,7 +239,45 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         versioned_file_dataset_ids: Vec<String>,
     ) -> eyre::Result<MoleculeAccessLevelEntryMap> {
-        let molecule_access_level_queries = versioned_file_dataset_ids
+        // NOTE: Since there might be versioned files with no records
+        //       (for example, just created), we need to filter them out
+        //       from the later query.
+        let versioned_files_with_entries = {
+            let versioned_file_has_entries_queries = versioned_file_dataset_ids
+                .iter()
+                .map(|versioned_file_dataset_id| {
+                    indoc::formatdoc!(
+                        r#"
+                        SELECT '{versioned_file_dataset_id}' AS versioned_file_dataset_id,
+                                COUNT(*) > 0 AS has_entries
+                        FROM '{versioned_file_dataset_id}'
+                        "#
+                    )
+                })
+                .collect::<Vec<_>>();
+            let sql = indoc::formatdoc!(
+                r#"
+                SELECT versioned_file_dataset_id
+                FROM ({subquery})
+                WHERE has_entries == TRUE
+                "#,
+                subquery = versioned_file_has_entries_queries.join("UNION ALL\n")
+            );
+
+            let versioned_files_with_entries = self
+                .sql_query::<Vec<VersionedFileWithEntriesDto>>(sql)
+                .await?
+                .into_iter()
+                .map(|dto| dto.versioned_file_dataset_id)
+                .collect::<HashSet<_>>();
+
+            versioned_file_dataset_ids
+                .into_iter()
+                .filter(|dataset_id| versioned_files_with_entries.contains(dataset_id))
+                .collect::<Vec<_>>()
+        };
+
+        let molecule_access_level_queries = versioned_files_with_entries
             .iter()
             .map(|versioned_file_dataset_id| {
                 indoc::formatdoc!(
@@ -333,6 +372,7 @@ struct SqlQuery;
 pub struct MoleculeProjectEntryDto {
     pub offset: u64,
     pub ipnft_uid: String,
+    pub ipnft_symbol: String,
     pub project_account_id: crate::AccountID,
     pub data_room_dataset_id: DatasetID,
     pub announcements_dataset_id: DatasetID,
@@ -345,6 +385,7 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
         Ok(MoleculeProjectEntry {
             offset: self.offset,
             ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
+            symbol: self.ipnft_symbol,
             project_account_id: self.project_account_id,
             data_room_dataset_id: self.data_room_dataset_id,
             announcements_dataset_id: self.announcements_dataset_id,
@@ -364,7 +405,7 @@ type AccountID = String;
 struct CreateWalletAccounts;
 
 #[derive(Debug, Deserialize, Serialize)]
-struct DataRoomWithEntryDto {
+struct DataRoomWithEntriesDto {
     data_room_dataset_id: String,
 }
 
@@ -375,6 +416,11 @@ struct VersionedFileEntryDto {
     op: u8,
     versioned_file_dataset_id: String,
     path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct VersionedFileWithEntriesDto {
+    versioned_file_dataset_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
