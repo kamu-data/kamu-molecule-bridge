@@ -102,7 +102,7 @@ async fn get_logs_ext_internal<F>(
     from_block: u64,
     to_block: u64,
     callback: &mut F,
-    retry_count: usize,
+    retry_count: u32,
 ) -> eyre::Result<()>
 where
     F: FnMut(LogsChunk) -> eyre::Result<()> + Send + Sync,
@@ -111,7 +111,7 @@ where
     debug_assert!(!addresses.is_empty());
     debug_assert!(!event_signatures.is_empty());
 
-    const MAX_RETRY_COUNT: usize = 3;
+    const MAX_RETRY_COUNT: u32 = 3;
     const DELAY_BETWEEN_RETRIES_STEP: Duration = Duration::from_secs(1);
 
     if retry_count >= MAX_RETRY_COUNT {
@@ -129,7 +129,7 @@ where
     let logs = match provider.get_logs(&filter).await {
         Ok(logs) => logs,
         Err(RpcError::Transport(e)) if e.is_retry_err() => {
-            let retry_delay = DELAY_BETWEEN_RETRIES_STEP * (retry_count + 1) as u32;
+            let retry_delay = DELAY_BETWEEN_RETRIES_STEP * (retry_count + 1);
             tokio::time::sleep(retry_delay).await;
 
             return Box::pin(get_logs_ext_internal(
