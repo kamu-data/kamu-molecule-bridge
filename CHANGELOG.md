@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.1.7]
+### Changed
+- Unlocked mutation GQL calls.
+
 ## [0.1.6]
 ### Changed
 - Filter empty versioned files.
