@@ -17,16 +17,16 @@ resolver = "3"
 
 [workspace.dependencies]
 # App
-bridge = { version = "0.1.2", path = "src/app/bridge", default-features = false }
+bridge = { version = "0.1.3", path = "src/app/bridge", default-features = false }
 # Domain
-kamu_node_api_client = { version = "0.1.2", path = "src/domain/kamu_node_api_client", default-features = false }
-molecule_ipnft = { version = "0.1.2", path = "src/domain/molecule_ipnft", default-features = false }
-multisig = { version = "0.1.2", path = "src/domain/multisig", default-features = false }
+kamu_node_api_client = { version = "0.1.3", path = "src/domain/kamu_node_api_client", default-features = false }
+molecule_ipnft = { version = "0.1.3", path = "src/domain/molecule_ipnft", default-features = false }
+multisig = { version = "0.1.3", path = "src/domain/multisig", default-features = false }
 # Infra
-molecule_contracts = { version = "0.1.2", path = "src/infra/molecule_contracts", default-features = false }
-multisig_safe_wallet = { version = "0.1.2", path = "src/infra/multisig_safe_wallet", default-features = false }
+molecule_contracts = { version = "0.1.3", path = "src/infra/molecule_contracts", default-features = false }
+multisig_safe_wallet = { version = "0.1.3", path = "src/infra/multisig_safe_wallet", default-features = false }
 # Utils
-alloy_ext = { version = "0.1.2", path = "src/utils/alloy_ext", default-features = false }
+alloy_ext = { version = "0.1.3", path = "src/utils/alloy_ext", default-features = false }
 
 alloy = { version = "1", default-features = false, features = [
     "std",
@@ -75,7 +75,7 @@ tokio = { version = "1", default-features = false, features = [
 
 [workspace.package]
 # TODO
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
 repository = "https://github.com/kamu-data/kamu-molecule-bridge"

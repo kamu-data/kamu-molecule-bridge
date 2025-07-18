@@ -30,8 +30,6 @@ fn main() -> eyre::Result<()> {
 
     init_tls();
 
-    let _guard = init_observability();
-
     // Loads configuration from env and config file
     // Config file is optional.
     // Environment variables take precedence over the config.
@@ -45,6 +43,8 @@ fn main() -> eyre::Result<()> {
 }
 
 async fn main_async(config: Config) -> eyre::Result<()> {
+    let _guard = init_observability();
+
     let provider = build_rpc_client(&config).await?;
     let chain_id = provider.get_chain_id().await?;
     let safe_wallet_api_service = Arc::new(SafeWalletApiService::new_from_chain_id(chain_id)?);
