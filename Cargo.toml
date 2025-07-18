@@ -74,7 +74,7 @@ tokio = { version = "1", default-features = false, features = [
 
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
 repository = "https://github.com/kamu-data/kamu-molecule-bridge"

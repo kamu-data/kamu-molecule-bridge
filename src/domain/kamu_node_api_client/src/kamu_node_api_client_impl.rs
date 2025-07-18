@@ -314,21 +314,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
         // TODO: batches? we have ~700 holders for some IPNFT
 
-        // TODO: remove when dev env will be setup
-        tracing::warn!(
-            "False create_wallet_accounts() call: did_pkhs: {:#?}",
-            did_pkhs.iter().map(ToString::to_string).collect::<Vec<_>>()
-        );
-
-        // NOTE: To make suppress CI warnings
-        let _ = CreateWalletAccounts;
-
-        /*
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
         })
         .await?;
-        */
 
         Ok(())
     }
@@ -340,21 +329,12 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> color_eyre::Result<()> {
         // TODO: batches? we have ~1400 operations for some IPNFT
 
-        // TODO: remove when dev env will be setup
-
-        tracing::warn!("False apply_account_dataset_relations() call: operations: {operations:#?}");
-
-        // NOTE: To make suppress CI warnings
-        let _ = ApplyAccountDatasetRelations;
-
-        /*
         let operations = operations.into_iter().map(Into::into).collect();
 
         self.gql_api_call::<ApplyAccountDatasetRelations>(
             apply_account_dataset_relations::Variables { operations },
         )
         .await?;
-        */
 
         Ok(())
     }
