@@ -34,3 +34,4 @@ mockall = { optional = true, workspace = true }
 
 
 [dev-dependencies]
+mockall = { workspace = true }
