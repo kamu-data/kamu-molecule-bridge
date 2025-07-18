@@ -15,12 +15,7 @@ const DEFAULT_RUST_LOG: &str =
     "debug,alloy_transport_http=info,alloy_rpc_client=info,reqwest=info,hyper=info,h2=info";
 
 fn main() -> eyre::Result<()> {
-    // TODO Warning: SpanTrace capture is Unsupported
-    //      Ensure that you've setup a tracing-error ErrorLayer and the semver versions are compatible
-    //      - https://github.com/eyre-rs/eyre/tree/master/color-eyre#disabling-spantrace-capture-by-default
-    //      - https://github.com/eyre-rs/color-eyre/issues/32
-    //      - https://github.com/eyre-rs/eyre/tree/master/color-spantrace
-    color_eyre::install()?;
+    init_error_reporting()?;
 
     // FIXME: Not handling errors due to poor API that doesn't allow to easily
     // differentiate .env file's ansence from other errors
@@ -39,11 +34,11 @@ fn main() -> eyre::Result<()> {
         .enable_all()
         .build()?;
 
-    rt.block_on(main_async(config))
+    rt.block_on(main_async(config, args))
 }
 
-async fn main_async(config: Config) -> eyre::Result<()> {
-    let _guard = init_observability();
+async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
+    let observability = init_observability();
 
     let provider = build_rpc_client(&config).await?;
     let chain_id = provider.get_chain_id().await?;
@@ -55,6 +50,8 @@ async fn main_async(config: Config) -> eyre::Result<()> {
         config.molecule_projects_dataset_alias.clone(),
     ));
 
+    tracing::info!(version = VERSION, ?config, ?args, "Running {BINARY_NAME}");
+
     let mut app = App::new(
         config,
         provider,
@@ -62,13 +59,23 @@ async fn main_async(config: Config) -> eyre::Result<()> {
         kamu_node_api_client,
     );
 
-    tracing::info!(version = VERSION, "Running {BINARY_NAME}");
-
     let shutdown_requested = trap_signals();
 
-    app.run(shutdown_requested).await?;
+    match app.run(shutdown_requested).await {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            tracing::error!(
+                error = ?err,
+                error_msg = %err,
+                "Unhandled error",
+            );
 
-    Ok(())
+            // NOTE: The error was already reported to tracing, so we will flush tracing
+            // and exit the process with error code not to output it twice.
+            drop(observability);
+            std::process::exit(1);
+        }
+    }
 }
 
 async fn build_rpc_client(config: &Config) -> eyre::Result<DynProvider> {
@@ -81,7 +88,32 @@ async fn build_rpc_client(config: &Config) -> eyre::Result<DynProvider> {
         .await?
         .erased();
 
+    // Check that we are looking at the right chain
+    let actual_chain_id = provider.get_chain_id().await?;
+    if actual_chain_id != config.chain_id {
+        eyre::bail!(
+            "Expected to communicate with chain ID '{}' but RPC returned '{actual_chain_id}' instead",
+            config.chain_id,
+        );
+    }
+
     Ok(provider)
+}
+
+fn init_error_reporting() -> eyre::Result<()> {
+    use observability::config::Mode;
+
+    // Use blank theme when in service mode to avoid ANSII colors in tracing
+    let theme = match observability::init::auto_detect_mode() {
+        Mode::Dev => color_eyre::config::Theme::dark(),
+        Mode::Service => color_eyre::config::Theme::new(),
+    };
+
+    color_eyre::config::HookBuilder::default()
+        .theme(theme)
+        .install()?;
+
+    Ok(())
 }
 
 fn init_tls() {
@@ -116,16 +148,12 @@ async fn trap_signals() {
             .expect("failed to install Ctrl+C handler");
     };
 
-    #[cfg(unix)]
     let terminate = async {
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("failed to install signal handler")
             .recv()
             .await;
     };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
 
     tokio::select! {
         _ = ctrl_c => {

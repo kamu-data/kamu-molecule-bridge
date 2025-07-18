@@ -3040,8 +3040,8 @@ dependencies = [
 
 [[package]]
 name = "observability"
-version = "0.244.2"
-source = "git+https://github.com/kamu-data/kamu-cli?branch=chore%2Fobservability-optional-dill#6c08ed8ad159651bbecf3eb47eb7f2a271a98a56"
+version = "0.245.2"
+source = "git+https://github.com/kamu-data/kamu-cli?tag=v0.245.2#04ea40c1e225aaee90d4f82807d6594735a0bfab"
 dependencies = [
  "async-trait",
  "axum 0.8.4",
@@ -3057,6 +3057,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-appender",
+ "tracing-error",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]
