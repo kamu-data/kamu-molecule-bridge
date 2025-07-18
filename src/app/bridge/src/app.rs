@@ -565,15 +565,18 @@ impl App {
 
         let mut projects_dataset_offset = 0;
         for project_entry in all_projects_entries {
+            let _span = tracing::debug_span!(
+                "Process project",
+                symbol = project_entry.symbol,
+                ipnft_uid = %project_entry.ipnft_uid
+            )
+            .entered();
+
             projects_dataset_offset = project_entry.offset;
 
             let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
             else {
-                tracing::warn!(
-                    "Skip project '{}' processing because its ipnft_uid ({}) is not present in blockchain",
-                    project_entry.symbol,
-                    project_entry.ipnft_uid,
-                );
+                tracing::warn!("Skip project because it's not present in blockchain");
                 continue;
             };
 
@@ -585,20 +588,23 @@ impl App {
             let actual_files_map = versioned_files_entries
                 .added_entities
                 .into_iter()
-                .map(|(dataset_id, file_entry)| {
-                    let molecule_access_level =
-                        if let Some(value) = molecule_access_levels_map.get(&dataset_id) {
-                            *value
-                        } else {
-                            todo!();
-                        };
-                    (
+                .filter_map(|(dataset_id, file_entry)| {
+                    let Some(access) = molecule_access_levels_map.get(&dataset_id) else {
+                        tracing::warn!(
+                            "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
+                            file_entry.path,
+                        );
+
+                        return None;
+                    };
+
+                    Some((
                         dataset_id,
                         VersionedFileEntryWithMoleculeAccessLevel {
                             entry: file_entry,
-                            molecule_access_level,
+                            molecule_access_level: *access,
                         },
-                    )
+                    ))
                 })
                 .collect();
 
@@ -620,14 +626,20 @@ impl App {
         const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
         for (ipnft_uid, ipnft_state) in &app_state.ipnft_state_map {
-            // TODO: extract method with instrument fields (symbol, token_id, etc)
+            let _span = tracing::debug_span!(
+                "Process IPNFT",
+                symbol = ipnft_state.ipnft.symbol,
+                ipnft_uid = %ipnft_uid
+            )
+            .entered();
+
             if ipnft_state.ipnft.burnt {
-                tracing::info!("Skip burnt IPNFT ({ipnft_uid})");
+                tracing::info!("Skip burnt IPNFT");
                 continue;
             }
 
             let Some(project) = &ipnft_state.project else {
-                tracing::info!("Skip IPNFT ({ipnft_uid}) since there is no project created for it");
+                tracing::info!("Skip IPNFT since there is no project created for it");
                 continue;
             };
 
