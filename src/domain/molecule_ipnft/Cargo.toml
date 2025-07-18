@@ -25,15 +25,11 @@ default = []
 
 
 [dependencies]
-multisig = { workspace = true }
-
 alloy = { workspace = true }
 color-eyre = { workspace = true }
 serde = { workspace = true }
 
 
 [dev-dependencies]
-multisig = { workspace = true, features = ["testing"] }
-
 pretty_assertions = { workspace = true }
 tokio = { workspace = true }
