@@ -40,6 +40,7 @@ pub type AccountID = String;
 pub struct MoleculeProjectEntry {
     pub offset: u64,
     pub ipnft_uid: IpnftUid,
+    pub symbol: String,
     pub project_account_id: AccountID,
     pub data_room_dataset_id: DatasetID,
     pub announcements_dataset_id: DatasetID,

@@ -97,6 +97,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             SELECT offset,
                    account_id AS project_account_id,
                    ipnft_uid,
+                   ipnft_symbol,
                    data_room_dataset_id,
                    announcements_dataset_id
             FROM '{molecule_projects}'
@@ -371,6 +372,7 @@ struct SqlQuery;
 pub struct MoleculeProjectEntryDto {
     pub offset: u64,
     pub ipnft_uid: String,
+    pub ipnft_symbol: String,
     pub project_account_id: crate::AccountID,
     pub data_room_dataset_id: DatasetID,
     pub announcements_dataset_id: DatasetID,
@@ -383,6 +385,7 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
         Ok(MoleculeProjectEntry {
             offset: self.offset,
             ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
+            symbol: self.ipnft_symbol,
             project_account_id: self.project_account_id,
             data_room_dataset_id: self.data_room_dataset_id,
             announcements_dataset_id: self.announcements_dataset_id,

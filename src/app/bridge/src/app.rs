@@ -383,7 +383,7 @@ impl App {
             .copied()
             .collect::<Vec<_>>();
         if token_addresses.is_empty() {
-            // TODO: warning
+            tracing::warn!("No tokens to index");
             return Ok(Vec::new());
         }
 
@@ -456,7 +456,9 @@ impl App {
                             });
 
                     let Some((ipnft_uid, ipnft_state)) = maybe_ipnft_state_pair else {
-                        // TODO: warning message -- token without IPNFT
+                        tracing::warn!(
+                            "Skip '{symbol}' ({token_id}/{token_address}) token as there is no corresponding IPNFT"
+                        );
                         continue;
                     };
 
@@ -494,7 +496,10 @@ impl App {
                 .token_address_ipnft_uid_mapping
                 .get(&event.token_address)
             else {
-                // TODO: warning message -- token without IPNFT
+                tracing::warn!(
+                    "Skip event processing as token ({}) has no IPNFT",
+                    event.token_address
+                );
                 continue;
             };
 
@@ -564,7 +569,11 @@ impl App {
 
             let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
             else {
-                // TODO: warning message -- project without IPNFT in blockchain
+                tracing::warn!(
+                    "Skip project '{}' processing because its ipnft_uid ({}) is not present in blockchain",
+                    project_entry.symbol,
+                    project_entry.ipnft_uid,
+                );
                 continue;
             };
 
@@ -610,16 +619,15 @@ impl App {
         // TODO: Update when it's agreed
         const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
-        for ipnft_state in app_state.ipnft_state_map.values() {
+        for (ipnft_uid, ipnft_state) in &app_state.ipnft_state_map {
             // TODO: extract method with instrument fields (symbol, token_id, etc)
-
             if ipnft_state.ipnft.burnt {
-                // TODO: info log
+                tracing::info!("Skip burnt IPNFT ({ipnft_uid})");
                 continue;
             }
 
             let Some(project) = &ipnft_state.project else {
-                // TODO: info log
+                tracing::info!("Skip IPNFT ({ipnft_uid}) since there is no project created for it");
                 continue;
             };
 

@@ -147,8 +147,8 @@ where
     };
 
     (*callback)(LogsChunk {
-        from_block: filter.get_from_block().unwrap_or_default(),
-        to_block: filter.get_from_block().unwrap_or_default(),
+        from_block,
+        to_block,
         logs,
     })?;
 
