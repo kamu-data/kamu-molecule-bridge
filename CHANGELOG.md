@@ -12,7 +12,13 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
-## [Unreleased]
+## [0.1.1]
+### Added
+- RPC: Initial retry calls logic.
+### Changed
+- Do not request `molecule_access_level` for removed versioned files.
+### Fixed
+- Infura: handle RPC gateway timeouts.
 
 ## [0.1.0]
 ### Added
