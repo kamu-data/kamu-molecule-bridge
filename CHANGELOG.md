@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.1.5]
+### Changed
+- No changes, new version to remove collision with helm-chart repository
+
 ## [0.1.4]
 ### Added
 - RPC: Initial retry calls logic.
