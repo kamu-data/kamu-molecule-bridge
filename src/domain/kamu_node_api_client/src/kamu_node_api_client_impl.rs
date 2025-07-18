@@ -281,6 +281,9 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             did_pkhs.iter().map(ToString::to_string).collect::<Vec<_>>()
         );
 
+        // NOTE: To make suppress CI warnings
+        let _ = CreateWalletAccounts;
+
         /*
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
@@ -301,6 +304,9 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         // TODO: remove when dev env will be setup
 
         tracing::warn!("False apply_account_dataset_relations() call: operations: {operations:#?}");
+
+        // NOTE: To make suppress CI warnings
+        let _ = ApplyAccountDatasetRelations;
 
         /*
         let operations = operations.into_iter().map(Into::into).collect();

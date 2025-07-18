@@ -2892,7 +2892,6 @@ version = "0.1.3"
 dependencies = [
  "alloy",
  "color-eyre",
- "multisig",
  "pretty_assertions",
  "serde",
  "tokio",

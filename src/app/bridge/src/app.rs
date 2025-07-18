@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider};
-use alloy::rpc::types::Filter;
 use alloy_ext::prelude::*;
 use async_trait::async_trait;
 use color_eyre::eyre;
@@ -63,7 +62,7 @@ struct IpnftState {
 struct ProjectProjection {
     entry: MoleculeProjectEntry,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
-    removed_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
+    removed_files_map: HashMap<DatasetID, VersionedFileEntry>,
 }
 
 #[derive(Debug, Serialize)]
@@ -248,27 +247,14 @@ impl App {
         from_block: u64,
         to_block: u64,
     ) -> eyre::Result<IndexIpnftAndTokenizerContractsResponse> {
-        debug_assert!(to_block >= from_block);
-
-        let filter = {
-            let addresses = vec![
-                self.config.ipnft_contract_address,
-                self.config.tokenizer_contract_address,
-            ];
-
-            Filter::new()
-                .address(addresses)
-                .event_signature(HashSet::from_iter([
-                    IPNFT::IPNFTMinted::SIGNATURE_HASH,
-                    IPNFT::Transfer::SIGNATURE_HASH,
-                    Tokenizer::TokensCreated::SIGNATURE_HASH,
-                    // NOTE: Backward compatibility, based on:
-                    //       https://github.com/moleculeprotocol/IPNFT/blob/main/subgraph/makeAbis.sh
-                    Synthesizer::MoleculesCreated::SIGNATURE_HASH,
-                ]))
-                .from_block(from_block)
-                .to_block(to_block)
-        };
+        let event_signatures = HashSet::from_iter([
+            IPNFT::IPNFTMinted::SIGNATURE_HASH,
+            IPNFT::Transfer::SIGNATURE_HASH,
+            Tokenizer::TokensCreated::SIGNATURE_HASH,
+            // NOTE: Backward compatibility, based on:
+            //       https://github.com/moleculeprotocol/IPNFT/blob/main/subgraph/makeAbis.sh
+            Synthesizer::MoleculesCreated::SIGNATURE_HASH,
+        ]);
 
         let mut ipnft_events = Vec::new();
         let mut tokenizer_events = Vec::new();
@@ -279,82 +265,95 @@ impl App {
         self.metrics.rpc_queries_num.inc();
 
         self.rpc_client
-            .get_logs_ext(&filter, &mut |logs_chunk| {
-                for log in logs_chunk.logs {
-                    match log.event_signature_hash() {
-                        IPNFT::IPNFTMinted::SIGNATURE_HASH => {
-                            let event = IPNFT::IPNFTMinted::decode_log(&log.inner)?;
-                            let ipnft_uid = IpnftUid {
-                                ipnft_address: event.address,
-                                token_id: event.tokenId,
-                            };
+            .get_logs_ext(
+                vec![
+                    self.config.ipnft_contract_address,
+                    self.config.tokenizer_contract_address,
+                ],
+                event_signatures,
+                from_block,
+                to_block,
+                &mut |logs_chunk| {
+                    for log in logs_chunk.logs {
+                        match log.event_signature_hash() {
+                            IPNFT::IPNFTMinted::SIGNATURE_HASH => {
+                                let event = IPNFT::IPNFTMinted::decode_log(&log.inner)?;
+                                let ipnft_uid = IpnftUid {
+                                    ipnft_address: event.address,
+                                    token_id: event.tokenId,
+                                };
 
-                            ipnft_events.push(IpnftEvent::Minted(IpnftEventMinted {
-                                ipnft_uid,
-                                initial_owner: event.owner,
-                                symbol: event.symbol.clone(),
-                            }));
-                        }
-                        IPNFT::Transfer::SIGNATURE_HASH => {
-                            let event = IPNFT::Transfer::decode_log(&log.inner)?;
-                            let ipnft_uid = IpnftUid {
-                                ipnft_address: event.address,
-                                token_id: event.tokenId,
-                            };
+                                ipnft_events.push(IpnftEvent::Minted(IpnftEventMinted {
+                                    ipnft_uid,
+                                    initial_owner: event.owner,
+                                    symbol: event.symbol.clone(),
+                                }));
+                            }
+                            IPNFT::Transfer::SIGNATURE_HASH => {
+                                let event = IPNFT::Transfer::decode_log(&log.inner)?;
+                                let ipnft_uid = IpnftUid {
+                                    ipnft_address: event.address,
+                                    token_id: event.tokenId,
+                                };
 
-                            match (event.from, event.to) {
-                                (Address::ZERO, _) => {
-                                    // NOTE: Skip as we use higher-level
-                                    //       IPNFTMinted event for that
-                                }
-                                (from, Address::ZERO) => {
-                                    ipnft_events.push(IpnftEvent::Burnt(IpnftEventBurnt {
-                                        ipnft_uid,
-                                        former_owner: from,
-                                    }));
-                                }
-                                (from, to) => {
-                                    ipnft_events.push(IpnftEvent::Transfer(IpnftEventTransfer {
-                                        ipnft_uid,
-                                        from,
-                                        to,
-                                    }));
+                                match (event.from, event.to) {
+                                    (Address::ZERO, _) => {
+                                        // NOTE: Skip as we use higher-level
+                                        //       IPNFTMinted event for that
+                                    }
+                                    (from, Address::ZERO) => {
+                                        ipnft_events.push(IpnftEvent::Burnt(IpnftEventBurnt {
+                                            ipnft_uid,
+                                            former_owner: from,
+                                        }));
+                                    }
+                                    (from, to) => {
+                                        ipnft_events.push(IpnftEvent::Transfer(
+                                            IpnftEventTransfer {
+                                                ipnft_uid,
+                                                from,
+                                                to,
+                                            },
+                                        ));
+                                    }
                                 }
                             }
-                        }
-                        Tokenizer::TokensCreated::SIGNATURE_HASH => {
-                            let event = Tokenizer::TokensCreated::decode_log(&log.inner)?;
+                            Tokenizer::TokensCreated::SIGNATURE_HASH => {
+                                let event = Tokenizer::TokensCreated::decode_log(&log.inner)?;
 
-                            tokenizer_events.push(TokenizerEvent::TokenCreated(
-                                TokenizerEventTokenCreated {
-                                    symbol: event.symbol.clone(),
-                                    token_id: event.ipnftId,
-                                    token_address: event.tokenContract,
-                                    birth_block: log.block_number.unwrap_or_default(),
-                                },
-                            ));
-                        }
-                        Synthesizer::MoleculesCreated::SIGNATURE_HASH => {
-                            let event = Synthesizer::MoleculesCreated::decode_log(&log.inner)?;
+                                tokenizer_events.push(TokenizerEvent::TokenCreated(
+                                    TokenizerEventTokenCreated {
+                                        symbol: event.symbol.clone(),
+                                        token_id: event.ipnftId,
+                                        token_address: event.tokenContract,
+                                        birth_block: log.block_number.unwrap_or_default(),
+                                    },
+                                ));
+                            }
+                            Synthesizer::MoleculesCreated::SIGNATURE_HASH => {
+                                let event = Synthesizer::MoleculesCreated::decode_log(&log.inner)?;
 
-                            tokenizer_events.push(TokenizerEvent::TokenCreated(
-                                TokenizerEventTokenCreated {
-                                    symbol: event.symbol.clone(),
-                                    token_id: event.ipnftId,
-                                    token_address: event.tokenContract,
-                                    birth_block: log.block_number.unwrap_or_default(),
-                                },
-                            ));
-                        }
-                        unknown_event_signature_hash => {
-                            // TODO: extract error
-                            bail!("Unknown event signature hash: {unknown_event_signature_hash}")
+                                tokenizer_events.push(TokenizerEvent::TokenCreated(
+                                    TokenizerEventTokenCreated {
+                                        symbol: event.symbol.clone(),
+                                        token_id: event.ipnftId,
+                                        token_address: event.tokenContract,
+                                        birth_block: log.block_number.unwrap_or_default(),
+                                    },
+                                ));
+                            }
+                            unknown_event_signature_hash => {
+                                // TODO: extract error
+                                bail!(
+                                    "Unknown event signature hash: {unknown_event_signature_hash}"
+                                )
+                            }
                         }
                     }
-                }
 
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .await?;
 
         Ok(IndexIpnftAndTokenizerContractsResponse {
@@ -378,26 +377,17 @@ impl App {
         from_block: u64,
         to_block: u64,
     ) -> eyre::Result<Vec<IptEventTransfer>> {
-        debug_assert!(to_block >= from_block);
+        let token_addresses = app_state
+            .token_address_ipnft_uid_mapping
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        if token_addresses.is_empty() {
+            // TODO: warning
+            return Ok(Vec::new());
+        }
 
-        let filter = {
-            let addresses = app_state
-                .token_address_ipnft_uid_mapping
-                .keys()
-                .copied()
-                .collect::<Vec<_>>();
-
-            if addresses.is_empty() {
-                // TODO: warning
-                return Ok(Vec::new());
-            }
-
-            Filter::new()
-                .address(addresses)
-                .event_signature(IPToken::Transfer::SIGNATURE_HASH)
-                .from_block(from_block)
-                .to_block(to_block)
-        };
+        let event_signatures = HashSet::from_iter([IPToken::Transfer::SIGNATURE_HASH]);
 
         let mut events = Vec::new();
 
@@ -407,27 +397,35 @@ impl App {
         self.metrics.rpc_queries_num.inc();
 
         self.rpc_client
-            .get_logs_ext(&filter, &mut |logs_chunk| {
-                for log in logs_chunk.logs {
-                    match log.event_signature_hash() {
-                        IPToken::Transfer::SIGNATURE_HASH => {
-                            let event = IPToken::Transfer::decode_log(&log.inner)?;
+            .get_logs_ext(
+                token_addresses,
+                event_signatures,
+                from_block,
+                to_block,
+                &mut |logs_chunk| {
+                    for log in logs_chunk.logs {
+                        match log.event_signature_hash() {
+                            IPToken::Transfer::SIGNATURE_HASH => {
+                                let event = IPToken::Transfer::decode_log(&log.inner)?;
 
-                            events.push(IptEventTransfer {
-                                token_address: event.address,
-                                from: event.from,
-                                to: event.to,
-                                value: event.value,
-                            });
-                        }
-                        unknown_event_signature_hash => {
-                            bail!("Unknown event signature hash: {unknown_event_signature_hash}")
+                                events.push(IptEventTransfer {
+                                    token_address: event.address,
+                                    from: event.from,
+                                    to: event.to,
+                                    value: event.value,
+                                });
+                            }
+                            unknown_event_signature_hash => {
+                                bail!(
+                                    "Unknown event signature hash: {unknown_event_signature_hash}"
+                                )
+                            }
                         }
                     }
-                }
 
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .await?;
 
         Ok(events)
@@ -553,7 +551,6 @@ impl App {
                 .values()
                 .fold(Vec::new(), |mut acc, entries| {
                     acc.extend(entries.added_entities.keys().cloned());
-                    acc.extend(entries.removed_entities.keys().cloned());
                     acc
                 });
         let molecule_access_levels_map = self
@@ -595,30 +592,11 @@ impl App {
                     )
                 })
                 .collect();
-            let removed_files_map = versioned_files_entries
-                .removed_entities
-                .into_iter()
-                .map(|(dataset_id, file_entry)| {
-                    let molecule_access_level =
-                        if let Some(value) = molecule_access_levels_map.get(&dataset_id) {
-                            *value
-                        } else {
-                            todo!();
-                        };
-                    (
-                        dataset_id,
-                        VersionedFileEntryWithMoleculeAccessLevel {
-                            entry: file_entry,
-                            molecule_access_level,
-                        },
-                    )
-                })
-                .collect();
 
             ipnft_state.project = Some(ProjectProjection {
                 entry: project_entry,
                 actual_files_map,
-                removed_files_map,
+                removed_files_map: versioned_files_entries.removed_entities,
             });
         }
 

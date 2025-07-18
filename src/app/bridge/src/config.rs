@@ -1,7 +1,5 @@
 use alloy::primitives::Address;
 
-// TODO: migrate to figment
-//       - use https://github.com/Keats/validator for field validation
 #[derive(confique::Config, Debug)]
 pub struct Config {
     /// Interface to listen for HTTP admin traffic on
