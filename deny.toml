@@ -1,19 +1,20 @@
 [bans]
 multiple-versions = "deny"
 skip-tree = [
-    { name = "axum" },           # TODO: Need to upgrade to latest tonic
+    { name = "axum" }, # TODO: Need to upgrade to latest tonic
     { name = "hashbrown" },
     { name = "heck" },
     { name = "itertools" },
-    { name = "rand" },           # Waiting for alloy and other crates to upgrade to 0.9+
+    { name = "rand" }, # Waiting for alloy and other crates to upgrade to 0.9+
     { name = "regex-automata" }, # Waiting for matchers crate to upgrade
     { name = "rustix" },
     { name = "thiserror" },
-    { name = "webpki-roots" },   # No actual duplication, as v0 package was made to depend on v1
+    { name = "webpki-roots" }, # No actual duplication, as v0 package was made to depend on v1
 ]
 
 # We should always specify version ranges
 wildcards = "deny"
+allow-wildcard-paths = true
 
 deny = [
     { name = "openssl-sys", reason = "We use rustls throughout the project" },
