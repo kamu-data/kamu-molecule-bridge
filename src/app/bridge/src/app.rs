@@ -62,7 +62,7 @@ struct IpnftState {
 struct ProjectProjection {
     entry: MoleculeProjectEntry,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
-    removed_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
+    removed_files_map: HashMap<DatasetID, VersionedFileEntry>,
 }
 
 #[derive(Debug, Serialize)]
@@ -551,7 +551,6 @@ impl App {
                 .values()
                 .fold(Vec::new(), |mut acc, entries| {
                     acc.extend(entries.added_entities.keys().cloned());
-                    acc.extend(entries.removed_entities.keys().cloned());
                     acc
                 });
         let molecule_access_levels_map = self
@@ -593,30 +592,11 @@ impl App {
                     )
                 })
                 .collect();
-            let removed_files_map = versioned_files_entries
-                .removed_entities
-                .into_iter()
-                .map(|(dataset_id, file_entry)| {
-                    let molecule_access_level =
-                        if let Some(value) = molecule_access_levels_map.get(&dataset_id) {
-                            *value
-                        } else {
-                            todo!();
-                        };
-                    (
-                        dataset_id,
-                        VersionedFileEntryWithMoleculeAccessLevel {
-                            entry: file_entry,
-                            molecule_access_level,
-                        },
-                    )
-                })
-                .collect();
 
             ipnft_state.project = Some(ProjectProjection {
                 entry: project_entry,
                 actual_files_map,
-                removed_files_map,
+                removed_files_map: versioned_files_entries.removed_entities,
             });
         }
 
