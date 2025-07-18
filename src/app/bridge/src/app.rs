@@ -847,38 +847,6 @@ impl App {
     fn create_did_phk(&self, address: Address) -> eyre::Result<DidPhk> {
         DidPhk::new_from_chain_id(self.config.chain_id, address)
     }
-
-    // fn extend_operations(&self) {
-    //     // operations
-    //     // core_file_dataset_ids
-    //     // current_owners_did_pkhs
-    //     // current_owners_did_pkhs
-    //     // revoke_access_accounts_did_pkh
-    //
-    //     for core_file_dataset_id in core_file_dataset_ids {
-    //         for owner in &current_owners_did_pkhs {
-    //             operations.push(AccountDatasetRelationOperation {
-    //                 account_id: owner.to_string(),
-    //                 operation: DatasetRoleOperation::Set(DatasetAccessRole::Maintainer),
-    //                 dataset_id: core_file_dataset_id.clone(),
-    //             });
-    //         }
-    //         for holder in &holders_did_pkhs {
-    //             operations.push(AccountDatasetRelationOperation {
-    //                 account_id: holder.to_string(),
-    //                 operation: DatasetRoleOperation::Set(DatasetAccessRole::Reader),
-    //                 dataset_id: core_file_dataset_id.clone(),
-    //             });
-    //         }
-    //         for revoke_access_account in &revoke_access_accounts_did_pkh {
-    //             operations.push(AccountDatasetRelationOperation {
-    //                 account_id: revoke_access_account.to_string(),
-    //                 operation: DatasetRoleOperation::Unset,
-    //                 dataset_id: core_file_dataset_id.clone(),
-    //             });
-    //         }
-    //     }
-    // }
 }
 
 struct IndexIpnftAndTokenizerContractsResponse {
