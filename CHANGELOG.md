@@ -12,7 +12,7 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
-## [0.1.1]
+## [0.1.4]
 ### Added
 - RPC: Initial retry calls logic.
 ### Changed
