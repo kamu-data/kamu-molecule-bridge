@@ -48,9 +48,10 @@ axum = { version = "0.8", default-features = false, features = [
 color-eyre = { version = "0.6" }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.13", default-features = false }
-observability = { git = "https://github.com/kamu-data/kamu-cli", branch = "chore/observability-optional-dill", version = "0.244.2", default-features = false, features = [
+observability = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.245.2", version = "0.245.2", default-features = false, features = [
     "opentelemetry",
     "prometheus",
+    "tracing-error",
 ] }
 pretty_assertions = { version = "1.0", features = ["std", "unstable"] }
 prometheus = { version = "0.13", default-features = false }
