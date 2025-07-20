@@ -22,9 +22,9 @@ jobs:
           components: rustfmt
           target: ${{ matrix.target }}
           override: true
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install cross
-        run: cargo binstall cross -y
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
       - name: Build
         run: cross build -p ${{ matrix.crate }} --release --target=${{ matrix.target }}
       - uses: actions/upload-artifact@v4

@@ -38,11 +38,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall cargo-deny -y
+        with:
+          toolchain: nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-udeps
       - run: cargo deny check --hide-inclusion-graph
-      - run: cargo binstall cargo-udeps -y
-      - run: cargo --list
       - run: cargo +nightly udeps --all-targets
 
   test_linux:
@@ -57,11 +58,10 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install cargo tools
-        run: |
-          cargo binstall cargo-nextest -y --force
-      - name: Build bridge
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Build
         run: cargo test ${{ env.CARGO_FLAGS }} --no-run
       - name: Run main set of tests
         run: cargo nextest run ${{ env.NEXTEST_FLAGS }}
