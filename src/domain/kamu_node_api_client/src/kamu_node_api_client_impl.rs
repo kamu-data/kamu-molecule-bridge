@@ -349,13 +349,13 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 struct SqlQuery;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MoleculeProjectEntryDto {
-    pub offset: u64,
-    pub ipnft_uid: String,
-    pub ipnft_symbol: String,
-    pub project_account_id: crate::AccountID,
-    pub data_room_dataset_id: DatasetID,
-    pub announcements_dataset_id: DatasetID,
+struct MoleculeProjectEntryDto {
+    offset: u64,
+    ipnft_uid: String,
+    ipnft_symbol: String,
+    project_account_id: crate::AccountID,
+    data_room_dataset_id: DatasetID,
+    announcements_dataset_id: DatasetID,
 }
 
 impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
