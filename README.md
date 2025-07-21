@@ -3,7 +3,8 @@ Assignes users correct access permissions based on IPT/IPNFT information indexed
 
 
 ## High-level Overview
->[!WARNING] TODO
+>[!WARNING]
+> TODO
 
 **Inputs**:
 - IPNFT contract events:
@@ -23,12 +24,14 @@ Service uses Kamu Node API to set the access permissions for relevant accounts a
 
 **Catch-up phase**:
 
->[!WARNING] TODO
+>[!WARNING]
+> TODO
 
 
 **Update loop**:
 
->[!WARNING] TODO
+>[!WARNING]
+> TODO
 
 
 ## Deploying
@@ -43,7 +46,8 @@ See [Helm chart repo](https://github.com/kamu-data/kamu-molecule-bridge-helm-cha
 ## Configuring
 The service accepts both environment variables (via `.env`) and a `config.yaml` file (location can be specified via CLI arguments). 
 
-> [!NOTE] Environment variables take precedence over the config.
+> [!NOTE]
+> Environment variables take precedence over the config.
 
 See [`.env.example`](./.env.example) for sample configuration.
 
@@ -85,4 +89,5 @@ Service provides `/system/state` endpoint that returns the projected state of wh
 
 In event of a bug or manual changes in access permissions in Kamu Node it may be sometimes needed to re-synchronize the blockchain state with permissions in Kamu from scratch. To do this ...
 
->[!WARNING] TODO
+>[!WARNING]
+> TODO
