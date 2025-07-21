@@ -28,7 +28,10 @@ pub struct App {
     rpc_client: DynProvider,
     multisig_resolver: Arc<dyn MultisigResolver>,
     kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
+
+    #[expect(dead_code)]
     metrics: BridgeMetrics,
+    metrics_registry: prometheus::Registry,
 
     state: Arc<RwLock<AppState>>,
 }
@@ -101,14 +104,16 @@ impl App {
         rpc_client: DynProvider,
         multisig_resolver: Arc<dyn MultisigResolver>,
         kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
+        metrics: BridgeMetrics,
+        metrics_registry: prometheus::Registry,
     ) -> Self {
-        let metrics = BridgeMetrics::new(config.chain_id);
         Self {
             config,
             rpc_client,
             multisig_resolver,
             kamu_node_api_client,
             metrics,
+            metrics_registry,
             state: Default::default(),
         }
     }
@@ -118,11 +123,9 @@ impl App {
         F: Future<Output = ()> + Send + 'static,
     {
         // Initialization
-        let metrics_reg =
-            prometheus::Registry::new_custom(Some("kamu_molecule_bridge".into()), None).unwrap();
-        self.metrics.register(&metrics_reg)?;
-
-        let http_serve_future = self.build_http_server(metrics_reg.clone()).await?;
+        let http_serve_future = self
+            .build_http_server(self.metrics_registry.clone())
+            .await?;
         let http_server = http_serve_future.with_graceful_shutdown(shutdown_requested);
 
         // Asynchronous execution: HTTP server and indexing
@@ -269,11 +272,6 @@ impl App {
         let mut ipnft_events = Vec::new();
         let mut tokenizer_events = Vec::new();
 
-        // TODO: The callback nature of `get_logs_ext` makes it hard to track the actual number of calls
-        // we should either integrate metrics into alloy as a middleware or perhaps convert this function
-        // to return a stream of log batches, so we could increment request counter per each batch
-        self.metrics.rpc_queries_num.inc();
-
         self.rpc_client
             .get_logs_ext(
                 vec![
@@ -400,11 +398,6 @@ impl App {
         let event_signatures = HashSet::from_iter([IPToken::Transfer::SIGNATURE_HASH]);
 
         let mut events = Vec::new();
-
-        // TODO: The callback nature of `get_logs_ext` makes it hard to track the actual number of calls
-        // we should either integrate metrics into alloy as a middleware or perhaps convert this function
-        // to return a stream of log batches, so we could increment request counter per each batch
-        self.metrics.rpc_queries_num.inc();
 
         self.rpc_client
             .get_logs_ext(

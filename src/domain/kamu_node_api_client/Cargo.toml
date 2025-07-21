@@ -33,12 +33,15 @@ async-trait = { workspace = true }
 # TODO: use just eyre and color-eyre only in main.rs
 color-eyre = { workspace = true }
 indoc = { workspace = true }
+prometheus = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 
-graphql_client = { version = "0.14.0", default-features = false, features = ["graphql_query_derive"] }
+graphql_client = { version = "0.14.0", default-features = false, features = [
+    "graphql_query_derive",
+] }
 
 mockall = { optional = true, workspace = true }
 

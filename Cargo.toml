@@ -31,6 +31,7 @@ alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
 alloy = { version = "1", default-features = false, features = [
     "std",
     "contract",
+    "json-rpc",
     "network",
     "provider-http",
     "provider-ws",
@@ -72,6 +73,7 @@ tokio = { version = "1", default-features = false, features = [
     "macros",
     "signal",
 ] }
+tower = { version = "0.5", default-features = false }
 
 
 [workspace.package]

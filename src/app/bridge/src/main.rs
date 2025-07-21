@@ -5,6 +5,7 @@ use alloy::providers::{DynProvider, Provider};
 use clap::Parser as _;
 use color_eyre::eyre;
 use kamu_molecule_bridge::cli::Cli;
+use kamu_molecule_bridge::metrics::BridgeMetrics;
 use kamu_molecule_bridge::prelude::*;
 use kamu_node_api_client::KamuNodeApiClientImpl;
 use multisig_safe_wallet::services::SafeWalletApiService;
@@ -39,24 +40,24 @@ fn main() -> eyre::Result<()> {
 
 async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
     let observability = init_observability();
+    let (metrics_registry, metrics) = init_metrics(&config)?;
 
-    let provider = build_rpc_client(&config).await?;
-    let chain_id = provider.get_chain_id().await?;
-    let safe_wallet_api_service = Arc::new(SafeWalletApiService::new_from_chain_id(chain_id)?);
+    let rpc_client = build_rpc_client(&config, &metrics).await?;
 
-    let kamu_node_api_client = Arc::new(KamuNodeApiClientImpl::new(
-        config.kamu_node_gql_api_endpoint.clone(),
-        config.kamu_node_token.clone(),
-        config.molecule_projects_dataset_alias.clone(),
-    ));
+    let safe_wallet_api_service =
+        Arc::new(SafeWalletApiService::new_from_chain_id(config.chain_id)?);
+
+    let kamu_node_api_client = build_kamu_node_client(&config, &metrics);
 
     tracing::info!(version = VERSION, ?config, ?args, "Running {BINARY_NAME}");
 
     let mut app = App::new(
         config,
-        provider,
+        rpc_client,
         safe_wallet_api_service,
         kamu_node_api_client,
+        metrics,
+        metrics_registry,
     );
 
     let shutdown_requested = trap_signals();
@@ -78,14 +79,22 @@ async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
     }
 }
 
-async fn build_rpc_client(config: &Config) -> eyre::Result<DynProvider> {
+async fn build_rpc_client(config: &Config, metrics: &BridgeMetrics) -> eyre::Result<DynProvider> {
+    let client = alloy::rpc::client::ClientBuilder::default()
+        .layer(alloy_ext::metrics::MetricsLayer::new(
+            metrics.evm_rpc_requests_num_total.clone(),
+            metrics.evm_rpc_errors_num_total.clone(),
+        ))
+        .layer(alloy_ext::tracing::TracingLayer)
+        .connect(&config.rpc_url)
+        .await?;
+
     let provider = alloy::providers::ProviderBuilder::new()
         // We do not work with transactions, so we disable all filters ...
         .disable_recommended_fillers()
         // ... except caching filter for ChainId.
         .filler(ChainIdFiller::default())
-        .connect(&config.rpc_url)
-        .await?
+        .connect_client(client)
         .erased();
 
     // Check that we are looking at the right chain
@@ -98,6 +107,16 @@ async fn build_rpc_client(config: &Config) -> eyre::Result<DynProvider> {
     }
 
     Ok(provider)
+}
+
+fn build_kamu_node_client(config: &Config, metrics: &BridgeMetrics) -> Arc<KamuNodeApiClientImpl> {
+    Arc::new(KamuNodeApiClientImpl::new(
+        config.kamu_node_gql_api_endpoint.clone(),
+        config.kamu_node_token.clone(),
+        config.molecule_projects_dataset_alias.clone(),
+        metrics.kamu_gql_requests_num_total.clone(),
+        metrics.kamu_gql_errors_num_total.clone(),
+    ))
 }
 
 fn init_error_reporting() -> eyre::Result<()> {
@@ -139,6 +158,16 @@ fn init_observability() -> observability::init::Guard {
     observability::panic_handler::set_hook_trace_panics(false);
 
     guard
+}
+
+fn init_metrics(config: &Config) -> eyre::Result<(prometheus::Registry, BridgeMetrics)> {
+    let metrics = BridgeMetrics::new(config.chain_id);
+
+    let metrics_registry =
+        prometheus::Registry::new_custom(Some("kamu_molecule_bridge".into()), None).unwrap();
+    metrics.register(&metrics_registry)?;
+
+    Ok((metrics_registry, metrics))
 }
 
 async fn trap_signals() {

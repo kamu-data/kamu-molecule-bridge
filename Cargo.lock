@@ -43,6 +43,7 @@ dependencies = [
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-provider",
  "alloy-pubsub",
@@ -664,9 +665,11 @@ dependencies = [
  "alloy",
  "async-trait",
  "color-eyre",
+ "prometheus",
  "serde",
  "serde_json",
  "tokio",
+ "tower 0.5.2",
  "tracing",
 ]
 
@@ -2675,6 +2678,7 @@ dependencies = [
  "mockall",
  "molecule_ipnft",
  "pretty_assertions",
+ "prometheus",
  "reqwest",
  "serde",
  "serde_json",

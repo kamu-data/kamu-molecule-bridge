@@ -21,15 +21,26 @@ pub struct KamuNodeApiClientImpl {
     token: String,
     molecule_projects_dataset_alias: String,
     http_client: reqwest::Client,
+
+    metric_gql_requests_num_total: prometheus::IntCounter,
+    metric_gql_errors_num_total: prometheus::IntCounter,
 }
 
 impl KamuNodeApiClientImpl {
-    pub fn new(endpoint: String, token: String, molecule_projects_dataset_alias: String) -> Self {
+    pub fn new(
+        endpoint: String,
+        token: String,
+        molecule_projects_dataset_alias: String,
+        metric_gql_requests_num_total: prometheus::IntCounter,
+        metric_gql_errors_num_total: prometheus::IntCounter,
+    ) -> Self {
         Self {
             gql_api_endpoint: endpoint,
             token,
             http_client: reqwest::Client::new(),
             molecule_projects_dataset_alias,
+            metric_gql_requests_num_total,
+            metric_gql_errors_num_total,
         }
     }
 
@@ -54,6 +65,8 @@ impl KamuNodeApiClientImpl {
         &self,
         variables: Q::Variables,
     ) -> eyre::Result<Q::ResponseData> {
+        self.metric_gql_requests_num_total.inc();
+
         let body = Q::build_query(variables);
         let response = self
             .http_client
@@ -65,6 +78,8 @@ impl KamuNodeApiClientImpl {
 
         let status = response.status();
         if status != StatusCode::OK {
+            self.metric_gql_errors_num_total.inc();
+
             let body = response.text().await?;
             bail!("Unexpected status code: {status}, body: {body}",);
         }
@@ -74,6 +89,8 @@ impl KamuNodeApiClientImpl {
         if let Some(data) = response.data {
             Ok(data)
         } else if let Some(errors) = response.errors {
+            self.metric_gql_errors_num_total.inc();
+
             let error_message = errors.iter().map(ToString::to_string).collect::<Vec<_>>();
             bail!("Errors: {error_message:?}")
         } else {
