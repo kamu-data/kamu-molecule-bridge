@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use alloy::primitives::{Address, U256};
-use alloy::providers::{DynProvider, Provider};
+use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
 use async_trait::async_trait;
 use color_eyre::eyre;
@@ -16,6 +16,7 @@ use multisig::services::MultisigResolver;
 use serde::{Serialize, Serializer};
 use serde_json::Value;
 use tokio::sync::RwLock;
+use tracing::Instrument as _;
 
 use crate::config::Config;
 use crate::http_server;
@@ -112,20 +113,10 @@ impl App {
         }
     }
 
-    #[tracing::instrument(level = "info", skip_all)]
     pub async fn run<F>(&mut self, shutdown_requested: F) -> eyre::Result<()>
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        // Sanity checks
-        let actual_chain_id = self.rpc_client.get_chain_id().await?;
-        if actual_chain_id != self.config.chain_id {
-            bail!(
-                "Expected to communicate with chain ID '{}' but got '{actual_chain_id}' instead",
-                self.config.chain_id,
-            );
-        }
-
         // Initialization
         let metrics_reg =
             prometheus::Registry::new_custom(Some("kamu_molecule_bridge".into()), None).unwrap();
@@ -141,7 +132,6 @@ impl App {
         }
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
     async fn build_http_server(
         &mut self,
         metrics_registry: prometheus::Registry,
@@ -160,6 +150,27 @@ impl App {
     }
 
     async fn main(&mut self) -> eyre::Result<()> {
+        // NOTE: In OTEL we should not have traces that last more than a few seconds,
+        // so we break up the infinite main loop into spans attached to individual iterations,
+        // and using `root_span!()` ensures they are assigned a top-level `trace_id`.
+
+        self.init()
+            .instrument(observability::tracing::root_span!("App::init"))
+            .await?;
+
+        let iteration_delay =
+            std::time::Duration::from_secs(self.config.indexing_delay_between_iterations_in_secs);
+
+        loop {
+            tokio::time::sleep(iteration_delay).await;
+
+            self.update()
+                .instrument(observability::tracing::root_span!("App::update"))
+                .await?;
+        }
+    }
+
+    async fn init(&mut self) -> eyre::Result<()> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
         let mut initial_app_state = AppState::default();
@@ -176,14 +187,13 @@ impl App {
             *writable_state = initial_app_state;
         }
 
-        let iteration_delay =
-            std::time::Duration::from_secs(self.config.indexing_delay_between_iterations_in_secs);
+        Ok(())
+    }
 
-        loop {
-            tokio::time::sleep(iteration_delay).await;
-
-            tracing::trace!("Starting indexing iteration");
-        }
+    #[expect(clippy::unused_async)]
+    async fn update(&mut self) -> eyre::Result<()> {
+        tracing::info!("Performing update loop iteration");
+        Ok(())
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(to_block = to_block))]
