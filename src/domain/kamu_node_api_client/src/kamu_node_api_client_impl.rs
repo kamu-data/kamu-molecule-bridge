@@ -285,7 +285,8 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                     (SELECT '{versioned_file_dataset_id}' as versioned_file_dataset_id,
                             molecule_access_level
                      FROM '{versioned_file_dataset_id}'
-                     ORDER BY offset DESC)
+                     ORDER BY offset DESC
+                     LIMIT 1)
                     "#
                 )
             })
