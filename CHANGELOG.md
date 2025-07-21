@@ -12,6 +12,12 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.1.8]
+### Changed
+- Improved Prometheus metrics
+### Fixed
+- Optimized SQL query that fetches file access levels
+
 ## [0.1.7]
 ### Changed
 - Unlocked mutation GQL calls.
