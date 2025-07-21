@@ -12,6 +12,11 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.1.9] - 2025-07-21
+### Fixed
+- Errors during RPC initialization will be properly directed to tracing
+- Enabled debug info in release builds for ease of troubleshooting
+
 ## [0.1.8]
 ### Changed
 - Improved Prometheus metrics
