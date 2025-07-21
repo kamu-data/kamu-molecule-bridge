@@ -15,6 +15,7 @@ const BINARY_NAME: &str = env!("CARGO_PKG_NAME");
 const DEFAULT_RUST_LOG: &str =
     "debug,alloy_transport_http=info,alloy_rpc_client=info,reqwest=info,hyper=info,h2=info";
 
+// The job of main() is to load env vars and config and start the runtime
 fn main() -> eyre::Result<()> {
     init_error_reporting()?;
 
@@ -38,31 +39,11 @@ fn main() -> eyre::Result<()> {
     rt.block_on(main_async(config, args))
 }
 
+// The job of main_async() is to initialize observability and redirect unhandled errors to tracing
 async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
     let observability = init_observability();
-    let (metrics_registry, metrics) = init_metrics(&config)?;
 
-    let rpc_client = build_rpc_client(&config, &metrics).await?;
-
-    let safe_wallet_api_service =
-        Arc::new(SafeWalletApiService::new_from_chain_id(config.chain_id)?);
-
-    let kamu_node_api_client = build_kamu_node_client(&config, &metrics);
-
-    tracing::info!(version = VERSION, ?config, ?args, "Running {BINARY_NAME}");
-
-    let mut app = App::new(
-        config,
-        rpc_client,
-        safe_wallet_api_service,
-        kamu_node_api_client,
-        metrics,
-        metrics_registry,
-    );
-
-    let shutdown_requested = trap_signals();
-
-    match app.run(shutdown_requested).await {
+    match main_app(config, args).await {
         Ok(()) => Ok(()),
         Err(err) => {
             tracing::error!(
@@ -77,6 +58,32 @@ async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
             std::process::exit(1);
         }
     }
+}
+
+async fn main_app(config: Config, args: Cli) -> eyre::Result<()> {
+    let (metrics_registry, metrics) = init_metrics(&config)?;
+
+    let rpc_client = build_rpc_client(&config, &metrics).await?;
+
+    let safe_wallet_api_service =
+        Arc::new(SafeWalletApiService::new_from_chain_id(config.chain_id)?);
+
+    let kamu_node_api_client = build_kamu_node_client(&config, &metrics);
+
+    tracing::info!(version = VERSION, ?config, ?args, "Running {BINARY_NAME}");
+
+    let shutdown_requested = trap_signals();
+
+    let mut app = App::new(
+        config,
+        rpc_client,
+        safe_wallet_api_service,
+        kamu_node_api_client,
+        metrics,
+        metrics_registry,
+    );
+
+    app.run(shutdown_requested).await
 }
 
 async fn build_rpc_client(config: &Config, metrics: &BridgeMetrics) -> eyre::Result<DynProvider> {
