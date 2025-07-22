@@ -630,14 +630,14 @@ impl App {
     async fn load_molecule_projects(
         &mut self,
         app_state: &mut AppState,
-    ) -> eyre::Result<Vec<ChangedVersionedFile>> {
+    ) -> eyre::Result<ChangedVersionedFilePerProjectMap> {
         // Project updates are based on several principles:
         // - To query new dataset entries, we use the Ledger storage strategy advantages: for new changes,
         //   we just need a larger offset.
         // - In case of checking molecule_access_level changes, we also request information about existing files.
 
         // I. Preparations.
-        let mut detected_changes = Vec::new();
+        let mut detected_changes_map = HashMap::new();
 
         // First, check for new files in known projects (if any).
         let existing_projects = app_state
@@ -710,6 +710,7 @@ impl App {
         // II. Process existing projects.
         for existing_project in existing_projects {
             let project_entry = &existing_project.entry;
+            let mut detected_changes = Vec::new();
 
             let _span = tracing::debug_span!(
                 "Process existing project",
@@ -723,10 +724,8 @@ impl App {
                 .remove(&project_entry.data_room_dataset_id)
                 .unwrap_or_default();
 
-            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
-                project_entry.ipnft_uid,
-                &versioned_files_entries,
-            );
+            let changed_versioned_files =
+                prepare_changes_based_on_changed_versioned_files_entries(&versioned_files_entries);
             detected_changes.extend(changed_versioned_files);
 
             let added_file_entries_map = build_added_file_entries_with_molecule_access_level_map(
@@ -745,7 +744,6 @@ impl App {
                 .extend(added_file_entries_map);
             // ... (and check if molecule_access_level has changed for existing files), ...
             let changed_versioned_files = prepare_changes_based_on_changed_molecule_access_levels(
-                project_entry.ipnft_uid,
                 &existing_project.actual_files_map,
                 &molecule_access_levels_map,
             );
@@ -758,6 +756,8 @@ impl App {
             // ... and offset.
             existing_project.latest_data_room_offset =
                 versioned_files_entries.latest_data_room_offset;
+
+            detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
         }
 
         // III. Process new projects.
@@ -765,6 +765,8 @@ impl App {
         let mut new_projects_dataset_offset = app_state.projects_dataset_offset;
 
         for project_entry in new_projects_entries {
+            let mut detected_changes = Vec::new();
+
             let _span = tracing::debug_span!(
                 "Process new project",
                 symbol = project_entry.symbol,
@@ -784,16 +786,16 @@ impl App {
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
                 .unwrap_or_default();
-            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
-                project_entry.ipnft_uid,
-                &versioned_files_entries,
-            );
+            let changed_versioned_files =
+                prepare_changes_based_on_changed_versioned_files_entries(&versioned_files_entries);
             detected_changes.extend(changed_versioned_files);
 
             let actual_files_map = build_added_file_entries_with_molecule_access_level_map(
                 versioned_files_entries.added_entities,
                 &molecule_access_levels_map,
             );
+
+            detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
 
             ipnft_state.project = Some(ProjectProjection {
                 entry: project_entry,
@@ -805,7 +807,7 @@ impl App {
 
         app_state.projects_dataset_offset = new_projects_dataset_offset;
 
-        Ok(detected_changes)
+        Ok(detected_changes_map)
     }
 
     #[tracing::instrument(level = "info", skip_all)]
@@ -837,13 +839,13 @@ impl App {
         };
 
         // Prepare file dataset ids
-        let mut core_file_dataset_ids = Vec::with_capacity(2);
+        let core_file_dataset_ids = vec![
+            project.entry.data_room_dataset_id.clone(),
+            project.entry.announcements_dataset_id.clone(),
+        ];
         let mut owner_file_dataset_ids = Vec::new();
         let mut holder_file_dataset_ids = Vec::new();
         let mut removed_file_dataset_ids = Vec::new();
-
-        core_file_dataset_ids.push(project.entry.data_room_dataset_id.clone());
-        core_file_dataset_ids.push(project.entry.announcements_dataset_id.clone());
 
         for (dataset_id, entry_with_access_level) in &project.actual_files_map {
             use MoleculeAccessLevel as Access;
@@ -1051,10 +1053,11 @@ struct ProcessTokenizerEventsResponse {
 
 #[derive(Debug)]
 struct ChangedVersionedFile {
-    ipnft_uid: IpnftUid,
     dataset_id: DatasetID,
     change: IpnftDataRoomFileChange,
 }
+
+type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedFile>>;
 
 #[derive(Debug)]
 enum IpnftDataRoomFileChange {
@@ -1095,7 +1098,6 @@ fn build_added_file_entries_with_molecule_access_level_map(
 }
 
 fn prepare_changes_based_on_changed_versioned_files_entries(
-    ipnft_uid: IpnftUid,
     versioned_files_entries: &VersionedFilesEntries,
 ) -> Vec<ChangedVersionedFile> {
     let mut changes = Vec::with_capacity(
@@ -1105,14 +1107,12 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
 
     for added_dataset_id in versioned_files_entries.added_entities.keys() {
         changes.push(ChangedVersionedFile {
-            ipnft_uid,
             dataset_id: added_dataset_id.clone(),
             change: IpnftDataRoomFileChange::Added,
         });
     }
     for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
         changes.push(ChangedVersionedFile {
-            ipnft_uid,
             dataset_id: removed_dataset_id.clone(),
             change: IpnftDataRoomFileChange::Removed,
         });
@@ -1122,7 +1122,6 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
 }
 
 fn prepare_changes_based_on_changed_molecule_access_levels(
-    ipnft_uid: IpnftUid,
     project_actual_files_map: &HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
     molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
 ) -> Vec<ChangedVersionedFile> {
@@ -1140,7 +1139,6 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
 
         if current_access != new_access {
             changes.push(ChangedVersionedFile {
-                ipnft_uid,
                 dataset_id: dataset_id.clone(),
                 change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
                     from: current_access,
