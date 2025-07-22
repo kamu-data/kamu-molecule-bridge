@@ -65,6 +65,7 @@ struct IpnftState {
 #[derive(Debug, Serialize)]
 struct ProjectProjection {
     entry: MoleculeProjectEntry,
+    latest_data_room_offset: u64,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
     removed_files_map: HashMap<DatasetID, VersionedFileEntry>,
 }
@@ -180,8 +181,9 @@ impl App {
 
         self.initial_indexing(&mut initial_app_state, latest_finalized_block_number)
             .await?;
-        self.initial_projects_loading(&mut initial_app_state)
-            .await?;
+        // TODO: use
+        let _initial_changes = self.load_molecule_projects(&mut initial_app_state).await?;
+
         // TODO: index multisig for whitelisted IPNFT
         self.initial_access_applying(&initial_app_state).await?;
 
@@ -543,7 +545,7 @@ impl App {
             .kamu_node_api_client
             .get_molecule_project_entries(0) // NOTE: full scan
             .await?;
-        let data_room_dataset_ids = all_projects_entries
+        let data_room_dataset_ids_with_offsets = all_projects_entries
             .iter()
             .map(|project| DataRoomDatasetIdWithOffset {
                 dataset_id: project.data_room_dataset_id.clone(),
@@ -552,7 +554,7 @@ impl App {
             .collect();
         let mut versioned_files_entries_map = self
             .kamu_node_api_client
-            .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids)
+            .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids_with_offsets)
             .await?;
         let versioned_file_dataset_ids =
             versioned_files_entries_map
@@ -613,6 +615,7 @@ impl App {
 
             ipnft_state.project = Some(ProjectProjection {
                 entry: project_entry,
+                latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
                 actual_files_map,
                 removed_files_map: versioned_files_entries.removed_entities,
             });
@@ -621,6 +624,222 @@ impl App {
         app_state.projects_dataset_offset = projects_dataset_offset;
 
         Ok(())
+    }
+
+    #[tracing::instrument(level = "info", skip_all)]
+    async fn load_molecule_projects(
+        &mut self,
+        app_state: &mut AppState,
+    ) -> eyre::Result<Vec<ChangedVersionedFile>> {
+        // Project updates are based on several principles:
+        // - To query new dataset entries, we use the Ledger storage strategy advantages: for new changes,
+        //   we just need a larger offset.
+        // - In case of checking molecule_access_level changes, we also request information about existing files.
+
+        // I. Preparations.
+        let mut detected_changes = Vec::new();
+
+        // First, check for new files in known projects (if any).
+        let existing_projects = app_state
+            .ipnft_state_map
+            .values_mut()
+            .filter_map(|ipnft_state| ipnft_state.project.as_mut())
+            .collect::<Vec<_>>();
+        let existing_data_room_dataset_ids_with_offsets = existing_projects
+            .iter()
+            .map(|project| DataRoomDatasetIdWithOffset {
+                dataset_id: project.entry.data_room_dataset_id.clone(),
+                offset: project.latest_data_room_offset + 1,
+            })
+            .collect::<Vec<_>>();
+
+        // Second, check for new allowlisted projects.
+        let new_projects_entries = self
+            .kamu_node_api_client
+            .get_molecule_project_entries(app_state.projects_dataset_offset + 1) // NOTE: only new allowlisted projects
+            .await?;
+        let new_data_room_dataset_ids_with_offsets = new_projects_entries
+            .iter()
+            .map(|project| DataRoomDatasetIdWithOffset {
+                dataset_id: project.data_room_dataset_id.clone(),
+                offset: 0, // NOTE: full scan
+            })
+            .collect::<Vec<_>>();
+
+        // Combine data for batch requests.
+        let data_room_dataset_ids_with_offsets = {
+            let mut ids = Vec::with_capacity(
+                new_data_room_dataset_ids_with_offsets.len()
+                    + existing_data_room_dataset_ids_with_offsets.len(),
+            );
+            ids.extend(new_data_room_dataset_ids_with_offsets);
+            ids.extend(existing_data_room_dataset_ids_with_offsets);
+            ids
+        };
+        let mut versioned_files_entries_map = self
+            .kamu_node_api_client
+            .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids_with_offsets)
+            .await?;
+
+        // Build file "molecule_access_level" mapping:
+        let versioned_file_dataset_ids = {
+            let added_file_entry_dataset_ids =
+                versioned_files_entries_map
+                    .values()
+                    .fold(Vec::new(), |mut acc, entries| {
+                        acc.extend(entries.added_entities.keys().cloned());
+                        acc
+                    });
+            let existing_file_entry_dataset_ids = existing_projects
+                .iter()
+                .flat_map(|project| project.actual_files_map.keys().cloned())
+                .collect::<Vec<_>>();
+
+            let mut ids = Vec::with_capacity(
+                added_file_entry_dataset_ids.len() + existing_file_entry_dataset_ids.len(),
+            );
+            ids.extend(added_file_entry_dataset_ids);
+            ids.extend(existing_file_entry_dataset_ids);
+            ids
+        };
+        let molecule_access_levels_map = self
+            .kamu_node_api_client
+            .get_latest_molecule_access_levels_by_dataset_ids(versioned_file_dataset_ids)
+            .await?;
+
+        // II. Process existing projects.
+        for existing_project in existing_projects {
+            let project_entry = &existing_project.entry;
+
+            let _span = tracing::debug_span!(
+                "Process existing project",
+                symbol = project_entry.symbol,
+                ipnft_uid = %project_entry.ipnft_uid
+            )
+            .entered();
+
+            let versioned_files_entries = versioned_files_entries_map
+                // NOTE: try to extract a value from the map
+                .remove(&project_entry.data_room_dataset_id)
+                .unwrap_or_default();
+
+            for added_dataset_id in versioned_files_entries.added_entities.keys() {
+                detected_changes.push(ChangedVersionedFile {
+                    ipnft_uid: project_entry.ipnft_uid,
+                    dataset_id: added_dataset_id.clone(),
+                    change: IpnftDataRoomFileChange::Added,
+                });
+            }
+            for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
+                detected_changes.push(ChangedVersionedFile {
+                    ipnft_uid: project_entry.ipnft_uid,
+                    dataset_id: removed_dataset_id.clone(),
+                    change: IpnftDataRoomFileChange::Removed,
+                });
+            }
+
+            let added_file_entries_map = build_added_file_entries_with_molecule_access_level_map(
+                versioned_files_entries.added_entities,
+                &molecule_access_levels_map,
+            );
+
+            // Update actual files ...
+            existing_project.actual_files_map.retain(|dataset_id, _| {
+                versioned_files_entries
+                    .removed_entities
+                    .contains_key(dataset_id)
+            });
+            existing_project
+                .actual_files_map
+                .extend(added_file_entries_map);
+            // ... (and check if molecule_access_level has changed for existing files), ...
+            for (dataset_id, versioned_file) in &existing_project.actual_files_map {
+                let current_access = versioned_file.molecule_access_level;
+                let Some(new_access) = molecule_access_levels_map.get(dataset_id).copied() else {
+                    tracing::warn!(
+                        "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
+                        versioned_file.entry.path,
+                    );
+                    continue;
+                };
+
+                if current_access != new_access {
+                    detected_changes.push(ChangedVersionedFile {
+                        ipnft_uid: project_entry.ipnft_uid,
+                        dataset_id: dataset_id.clone(),
+                        change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                            from: current_access,
+                            to: new_access,
+                        },
+                    });
+                }
+            }
+
+            // ... removed files, ...
+            existing_project
+                .removed_files_map
+                .extend(versioned_files_entries.removed_entities);
+            // ... and offset.
+            existing_project.latest_data_room_offset =
+                versioned_files_entries.latest_data_room_offset;
+        }
+
+        // III. Process new projects.
+        // NOTE: Projects are sorted, so we can simply assign each new value.
+        let mut new_projects_dataset_offset = app_state.projects_dataset_offset;
+
+        for project_entry in new_projects_entries {
+            let _span = tracing::debug_span!(
+                "Process new project",
+                symbol = project_entry.symbol,
+                ipnft_uid = %project_entry.ipnft_uid
+            )
+            .entered();
+
+            new_projects_dataset_offset = project_entry.offset;
+
+            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
+            else {
+                tracing::warn!("Skip project because it's not present in blockchain");
+                continue;
+            };
+
+            let versioned_files_entries = versioned_files_entries_map
+                // NOTE: try to extract a value from the map
+                .remove(&project_entry.data_room_dataset_id)
+                .unwrap_or_default();
+
+            for added_dataset_id in versioned_files_entries.added_entities.keys() {
+                detected_changes.push(ChangedVersionedFile {
+                    ipnft_uid: project_entry.ipnft_uid,
+                    dataset_id: added_dataset_id.clone(),
+                    change: IpnftDataRoomFileChange::Added,
+                });
+            }
+            for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
+                detected_changes.push(ChangedVersionedFile {
+                    ipnft_uid: project_entry.ipnft_uid,
+                    dataset_id: removed_dataset_id.clone(),
+                    change: IpnftDataRoomFileChange::Removed,
+                });
+            }
+
+            let actual_files_map = build_added_file_entries_with_molecule_access_level_map(
+                versioned_files_entries.added_entities,
+                &molecule_access_levels_map,
+            );
+
+            ipnft_state.project = Some(ProjectProjection {
+                entry: project_entry,
+                latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
+                actual_files_map,
+                removed_files_map: versioned_files_entries.removed_entities,
+            });
+        }
+
+        app_state.projects_dataset_offset = new_projects_dataset_offset;
+
+        Ok(detected_changes)
     }
 
     #[tracing::instrument(level = "info", skip_all)]
@@ -862,4 +1081,49 @@ struct IndexIpnftAndTokenizerContractsResponse {
 
 struct ProcessTokenizerEventsResponse {
     minimal_ipt_birth_block: u64,
+}
+
+#[derive(Debug)]
+struct ChangedVersionedFile {
+    ipnft_uid: IpnftUid,
+    dataset_id: DatasetID,
+    change: IpnftDataRoomFileChange,
+}
+
+#[derive(Debug)]
+enum IpnftDataRoomFileChange {
+    Added,
+    Removed,
+    MoleculeAccessLevelChanged {
+        from: MoleculeAccessLevel,
+        to: MoleculeAccessLevel,
+    },
+}
+
+// Helper methods
+fn build_added_file_entries_with_molecule_access_level_map(
+    added_entities: ChangedVersionedFiles,
+    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
+) -> HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel> {
+    added_entities
+        .into_iter()
+        .filter_map(|(dataset_id, file_entry)| {
+            let Some(access) = molecule_access_levels_map.get(&dataset_id) else {
+                tracing::warn!(
+                    "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
+                    file_entry.path,
+                );
+
+                return None;
+            };
+
+            Some((
+                dataset_id,
+                VersionedFileEntryWithMoleculeAccessLevel {
+                    entry: file_entry,
+                    molecule_access_level: *access,
+                },
+            ))
+        })
+        .collect()
 }
