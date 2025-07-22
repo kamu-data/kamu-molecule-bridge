@@ -723,20 +723,11 @@ impl App {
                 .remove(&project_entry.data_room_dataset_id)
                 .unwrap_or_default();
 
-            for added_dataset_id in versioned_files_entries.added_entities.keys() {
-                detected_changes.push(ChangedVersionedFile {
-                    ipnft_uid: project_entry.ipnft_uid,
-                    dataset_id: added_dataset_id.clone(),
-                    change: IpnftDataRoomFileChange::Added,
-                });
-            }
-            for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
-                detected_changes.push(ChangedVersionedFile {
-                    ipnft_uid: project_entry.ipnft_uid,
-                    dataset_id: removed_dataset_id.clone(),
-                    change: IpnftDataRoomFileChange::Removed,
-                });
-            }
+            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                project_entry.ipnft_uid,
+                &versioned_files_entries,
+            );
+            detected_changes.extend(changed_versioned_files);
 
             let added_file_entries_map = build_added_file_entries_with_molecule_access_level_map(
                 versioned_files_entries.added_entities,
@@ -808,21 +799,11 @@ impl App {
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
                 .unwrap_or_default();
-
-            for added_dataset_id in versioned_files_entries.added_entities.keys() {
-                detected_changes.push(ChangedVersionedFile {
-                    ipnft_uid: project_entry.ipnft_uid,
-                    dataset_id: added_dataset_id.clone(),
-                    change: IpnftDataRoomFileChange::Added,
-                });
-            }
-            for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
-                detected_changes.push(ChangedVersionedFile {
-                    ipnft_uid: project_entry.ipnft_uid,
-                    dataset_id: removed_dataset_id.clone(),
-                    change: IpnftDataRoomFileChange::Removed,
-                });
-            }
+            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                project_entry.ipnft_uid,
+                &versioned_files_entries,
+            );
+            detected_changes.extend(changed_versioned_files);
 
             let actual_files_map = build_added_file_entries_with_molecule_access_level_map(
                 versioned_files_entries.added_entities,
@@ -1126,4 +1107,31 @@ fn build_added_file_entries_with_molecule_access_level_map(
             ))
         })
         .collect()
+}
+
+fn prepare_changes_based_on_changed_versioned_files_entries(
+    ipnft_uid: IpnftUid,
+    versioned_files_entries: &VersionedFilesEntries,
+) -> Vec<ChangedVersionedFile> {
+    let mut changes = Vec::with_capacity(
+        versioned_files_entries.added_entities.len()
+            + versioned_files_entries.removed_entities.len(),
+    );
+
+    for added_dataset_id in versioned_files_entries.added_entities.keys() {
+        changes.push(ChangedVersionedFile {
+            ipnft_uid,
+            dataset_id: added_dataset_id.clone(),
+            change: IpnftDataRoomFileChange::Added,
+        });
+    }
+    for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
+        changes.push(ChangedVersionedFile {
+            ipnft_uid,
+            dataset_id: removed_dataset_id.clone(),
+            change: IpnftDataRoomFileChange::Removed,
+        });
+    }
+
+    changes
 }
