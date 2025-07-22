@@ -1,16 +1,20 @@
 # Kamu-Molecule Bridge Component
-Assignes users correct access permissions based on IPT/IPNFT information indexed from blockchain.
+Assigns users correct access permissions based on IPT/IPNFT information indexed from blockchain.
 
 
 ## High-level Overview
->[!WARNING]
-> TODO
 
 **Inputs**:
-- IPNFT contract events:
-  - TODO
-- Tokenizer contract events:
-  - TODO
+- IPNFT contract events ([ABI](./src/infra/molecule_contracts/abis/IPNFT.json)):
+  - `IPNFTMinted`
+  - `Transfer`
+- Tokenizer contract events ([ABI](./src/infra/molecule_contracts/abis/Tokenizer.json)):
+  - `TokensCreated`
+- IPToken contract events ([ABI](./src/infra/molecule_contracts/abis/IPToken.json)):
+  - `Transfer` (ERC20)
+- Safe multisig wallet contract events ([ABI](./src/infra/molecule_contracts/abis/Safe.json)):
+  - `AddedOwner`
+  - `RemovedOwner`
 - Safe multisig wallet API:
   - Used to fetch the list of wallet owners
 - Kamu Node:
@@ -24,15 +28,20 @@ Service uses Kamu Node API to set the access permissions for relevant accounts a
 
 **Catch-up phase**:
 
->[!WARNING]
-> TODO
-
+- Blockchain: Indexing to have complete information about all IPNFTs, IPTokens and their owners/holders
+- API: Loading allowlisted projects from the `molecule/projects` dataset
+- API: Loading versioned files associated with projects (via data-rooms)
+- API: Loading and tracking `molecule_access_level` for later access permissions assignment
+- Bridge: Complete granting of access permissions for all owners and holders.
 
 **Update loop**:
 
->[!WARNING]
-> TODO
-
+- Blockchain: Periodic (configurable) indexing of new blocks.
+- API: Periodic (configurable) querying of dataset changes associated with projects.
+- Bridge: Granting/revoking access according to blockchain and dataset changes:
+  - Changed IPNFT owners / or changing multisig participants
+  - New holders / Holders without the required balance
+  - Added / removed files
 
 ## Developing
 See [`DEVELOPER.md`](./DEVELOPER.md) for developer instructions.
@@ -57,7 +66,7 @@ See [`.env.example`](./.env.example) for sample configuration.
 
 
 ## Monitoring
-The service provides following monitoring features:
+The service provides the following monitoring features:
 
 **Structured logging** via `tracing` crate:
 - In development mode the logs are human-readable, but in production deployment the logs are emitted in ND-JSON format
@@ -65,7 +74,7 @@ The service provides following monitoring features:
 - It is advised that in production deployment the pod output is directed into a log collector like Loki or Elasticsearch
 
 **Health checks**:
-- Application supports full set of checks (*startup, readiness, liveness*) used by Kubernetes
+- Application supports a full set of checks (*startup, readiness, liveness*) used by Kubernetes
 - The supplied Helm chart exposes them via `/system/health` HTTP endpoint
 
 **Prometheus metrics**:
@@ -91,7 +100,4 @@ Service provides `/system/state` endpoint that returns the projected state of wh
 
 **Re-Synchronization**:
 
-In event of a bug or manual changes in access permissions in Kamu Node it may be sometimes needed to re-synchronize the blockchain state with permissions in Kamu from scratch. To do this ...
-
->[!WARNING]
-> TODO
+In the event of a bug or manual changes in access permissions in Kamu Node it may sometimes be necessary to re-synchronize the blockchain state with permissions in Kamu from scratch. To achieve this, just restart the service.
