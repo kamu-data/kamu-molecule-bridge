@@ -128,7 +128,7 @@ multiple_crate_versions = { level = "allow", priority = 1 }
 [profile.dev]
 # Change this to 1 for faster builds that still preserve enough info for backtraces.
 # Use 2 when you need to attach a debugger.
-debug = 1
+debug = 2
 
 
 # Emit the line info tables for our crates to produce useful crash reports and backtraces.

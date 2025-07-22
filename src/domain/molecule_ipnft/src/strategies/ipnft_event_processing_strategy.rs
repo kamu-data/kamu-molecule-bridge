@@ -61,7 +61,7 @@ impl IpnftEventProcessingStrategy {
             if projection.minted && projection.burnt {
                 // NOTE: IPNFT was burned before we could give access to anyone.
                 //       So there's no need to revoke access from anyone as well.
-                // TODO: Add debug log
+                tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
                 continue;
             }
 
@@ -108,7 +108,6 @@ impl IpnftEventProcessingStrategy {
         global_projection.burnt = iteration_projection.burnt;
     }
 
-    // TODO: use?
     pub fn synchronize_ipnft_event_projections_maps(
         &self,
         global_projections_map: &mut HashMap<IpnftUid, IpnftEventProjection>,

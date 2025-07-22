@@ -11,7 +11,7 @@ use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
 use molecule_contracts::{IPNFT, IPToken, Synthesizer, Tokenizer};
 use molecule_ipnft::entities::*;
-use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
+use molecule_ipnft::strategies::{IpnftEventProcessingDecision, IpnftEventProcessingStrategy};
 use multisig::services::MultisigResolver;
 use serde::{Serialize, Serializer};
 use serde_json::Value;
@@ -41,7 +41,7 @@ struct AppState {
     projects_dataset_offset: u64,
 
     ipnft_state_map: HashMap<IpnftUid, IpnftState>,
-    ipnft_latest_indexed_block_number: u64,
+    ipnft_and_tokenizer_latest_indexed_block_number: u64,
 
     token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
     tokens_latest_indexed_block_number: u64,
@@ -202,50 +202,67 @@ impl App {
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(to_block = to_block))]
-    async fn initial_indexing(
+    async fn indexing(
         &mut self,
         app_state: &mut AppState,
         to_block: u64,
-    ) -> eyre::Result<()> {
-        let minimal_ipnft_tokenizer_birth_block = self
-            .config
-            .ipnft_contract_birth_block
-            .min(self.config.tokenizer_contract_birth_block);
-
+    ) -> eyre::Result<IndexingResponse> {
         let IndexIpnftAndTokenizerContractsResponse {
             ipnft_events,
             tokenizer_events,
         } = self
-            .index_ipnft_and_tokenizer_contracts(minimal_ipnft_tokenizer_birth_block, to_block)
+            .index_ipnft_and_tokenizer_contracts(
+                app_state.ipnft_and_tokenizer_latest_indexed_block_number + 1,
+                to_block,
+            )
             .await?;
 
         let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
+        let detected_changes_map =
+            IpnftEventProcessingStrategy.build_decisions(&initial_ipnft_event_projection_map);
 
         for (ipnft_uid, event_projection) in initial_ipnft_event_projection_map {
-            app_state.ipnft_state_map.insert(
-                ipnft_uid,
-                IpnftState {
-                    ipnft: event_projection,
-                    project: None,
-                    token: None,
-                },
-            );
+            let mut just_created = false;
+            let ipnft_state = app_state
+                .ipnft_state_map
+                .entry(ipnft_uid)
+                .or_insert_with(|| {
+                    just_created = true;
+                    IpnftState {
+                        ipnft: event_projection.clone(),
+                        project: None,
+                        token: None,
+                    }
+                });
+            // NOTE: No need to sync events the first time.
+            if !just_created {
+                IpnftEventProcessingStrategy
+                    .synchronize_ipnft_event_projections(&mut ipnft_state.ipnft, event_projection);
+            }
         }
 
         let ProcessTokenizerEventsResponse {
             minimal_ipt_birth_block,
         } = self.process_tokenizer_events(app_state, tokenizer_events);
 
-        app_state.ipnft_latest_indexed_block_number = to_block;
+        app_state.ipnft_and_tokenizer_latest_indexed_block_number = to_block;
 
-        let token_transfer_events = self
-            .index_tokens(app_state, minimal_ipt_birth_block, to_block)
-            .await?;
-        self.process_token_transfer_events(app_state, token_transfer_events)?;
+        let from_block = if app_state.tokens_latest_indexed_block_number == 0 {
+            minimal_ipt_birth_block
+        } else {
+            app_state.tokens_latest_indexed_block_number + 1
+        };
+        let token_transfer_events = self.index_tokens(app_state, from_block, to_block).await?;
+        let ProcessTokenTransferEventsResponse {
+            participating_holders_balances,
+        } = self.process_token_transfer_events(app_state, token_transfer_events)?;
 
         app_state.tokens_latest_indexed_block_number = to_block;
 
-        Ok(())
+        Ok(IndexingResponse {
+            ipnft_event_processing_decisions: detected_changes_map,
+            participating_holders_balances,
+        })
     }
 
     #[tracing::instrument(
@@ -254,7 +271,7 @@ impl App {
         fields(
             from_block = from_block,
             to_block = to_block,
-            diff = to_block - from_block,
+            diff = to_block.checked_sub(from_block),
         )
     )]
     async fn index_ipnft_and_tokenizer_contracts(
@@ -378,7 +395,7 @@ impl App {
         fields(
             from_block = from_block,
             to_block = to_block,
-            diff = to_block - from_block,
+            diff = to_block.checked_sub(from_block),
         )
     )]
     async fn index_tokens(
@@ -467,6 +484,8 @@ impl App {
                         continue;
                     };
 
+                    debug_assert!(ipnft_state.token.is_none());
+
                     ipnft_state.token = Some(TokenProjection {
                         token_address,
                         // NOTE: Will be populated later
@@ -495,7 +514,9 @@ impl App {
         &mut self,
         app_state: &mut AppState,
         events: Vec<IptEventTransfer>,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<ProcessTokenTransferEventsResponse> {
+        let mut participating_holders_balances = HashMap::new();
+
         for event in events {
             let Some(ipnft_uid) = app_state
                 .token_address_ipnft_uid_mapping
@@ -525,6 +546,8 @@ impl App {
                     .entry(event.from)
                     .or_default();
                 *balance -= event.value;
+
+                participating_holders_balances.insert(event.from, *balance);
             }
 
             if event.to != Address::ZERO {
@@ -533,10 +556,14 @@ impl App {
                     .entry(event.to)
                     .or_default();
                 *balance += event.value;
+
+                participating_holders_balances.insert(event.to, *balance);
             }
         }
 
-        Ok(())
+        Ok(ProcessTokenTransferEventsResponse {
+            participating_holders_balances,
+        })
     }
 
     #[tracing::instrument(level = "info", skip_all)]
@@ -964,6 +991,12 @@ impl App {
     }
 }
 
+#[derive(Debug)]
+struct IndexingResponse {
+    ipnft_event_processing_decisions: Vec<IpnftEventProcessingDecision>,
+    participating_holders_balances: HashMap<Address, U256>,
+}
+
 struct IndexIpnftAndTokenizerContractsResponse {
     ipnft_events: Vec<IpnftEvent>,
     tokenizer_events: Vec<TokenizerEvent>,
@@ -971,6 +1004,10 @@ struct IndexIpnftAndTokenizerContractsResponse {
 
 struct ProcessTokenizerEventsResponse {
     minimal_ipt_birth_block: u64,
+}
+
+struct ProcessTokenTransferEventsResponse {
+    participating_holders_balances: HashMap<Address, U256>,
 }
 
 #[derive(Debug)]
