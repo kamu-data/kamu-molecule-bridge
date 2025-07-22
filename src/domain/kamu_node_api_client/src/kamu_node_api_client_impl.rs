@@ -138,6 +138,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         data_rooms: Vec<DataRoomDatasetIdWithOffset>,
     ) -> eyre::Result<VersionedFilesEntriesMap> {
+        if data_rooms.is_empty() {
+            return Ok(VersionedFilesEntriesMap::new());
+        }
+
         // NOTE: Since there might be data rooms with no records
         //       (and hence no data schema), we need to filter them out
         //       from the later query.
@@ -176,6 +180,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                 .filter(|data_room| data_rooms_with_entries.contains(&data_room.dataset_id))
                 .collect::<Vec<_>>()
         };
+
+        if data_rooms_with_entries.is_empty() {
+            return Ok(VersionedFilesEntriesMap::new());
+        }
 
         let data_room_queries = data_rooms_with_entries
             .into_iter()
@@ -256,6 +264,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         versioned_file_dataset_ids: Vec<String>,
     ) -> eyre::Result<MoleculeAccessLevelEntryMap> {
+        if versioned_file_dataset_ids.is_empty() {
+            return Ok(MoleculeAccessLevelEntryMap::new());
+        }
+
         // NOTE: Since there might be versioned files with no records
         //       (for example, just created), we need to filter them out
         //       from the later query.
@@ -293,6 +305,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                 .filter(|dataset_id| versioned_files_with_entries.contains(dataset_id))
                 .collect::<Vec<_>>()
         };
+
+        if versioned_files_with_entries.is_empty() {
+            return Ok(MoleculeAccessLevelEntryMap::new());
+        }
 
         let molecule_access_level_queries = versioned_files_with_entries
             .iter()

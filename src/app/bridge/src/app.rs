@@ -670,7 +670,9 @@ impl App {
             existing_project.latest_data_room_offset =
                 versioned_files_entries.latest_data_room_offset;
 
-            detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+            if !detected_changes.is_empty() {
+                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+            }
         }
 
         // III. Process new projects.
@@ -708,7 +710,9 @@ impl App {
                 &molecule_access_levels_map,
             );
 
-            detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+            if !detected_changes.is_empty() {
+                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+            }
 
             ipnft_state.project = Some(ProjectProjection {
                 entry: project_entry,
