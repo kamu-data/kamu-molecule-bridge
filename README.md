@@ -34,6 +34,10 @@ Service uses Kamu Node API to set the access permissions for relevant accounts a
 > TODO
 
 
+## Developing
+See [`DEVELOPER.md`](./DEVELOPER.md) for developer instructions.
+
+
 ## Deploying
 Bridge is a **stateful long-running service** built to be deployed into Kubernetes.
 

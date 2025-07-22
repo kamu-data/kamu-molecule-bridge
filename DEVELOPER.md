@@ -1,6 +1,14 @@
 # Developer Guide <!-- omit in toc -->
 
 
+## Making Changes
+This repo is a fairly standard rust project with multiple crates combined into a single workspace.
+
+Rustc version is pinned in the `rust-toolchain.toml` file for build reproducibility.
+
+The `build` CI action in GitHub will trigger on every commit to run linting and tests.
+
+
 ## Release Procedure
 Prerequisites:
 ```sh
