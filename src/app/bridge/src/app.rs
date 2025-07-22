@@ -744,27 +744,12 @@ impl App {
                 .actual_files_map
                 .extend(added_file_entries_map);
             // ... (and check if molecule_access_level has changed for existing files), ...
-            for (dataset_id, versioned_file) in &existing_project.actual_files_map {
-                let current_access = versioned_file.molecule_access_level;
-                let Some(new_access) = molecule_access_levels_map.get(dataset_id).copied() else {
-                    tracing::warn!(
-                        "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
-                        versioned_file.entry.path,
-                    );
-                    continue;
-                };
-
-                if current_access != new_access {
-                    detected_changes.push(ChangedVersionedFile {
-                        ipnft_uid: project_entry.ipnft_uid,
-                        dataset_id: dataset_id.clone(),
-                        change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
-                            from: current_access,
-                            to: new_access,
-                        },
-                    });
-                }
-            }
+            let changed_versioned_files = prepare_changes_based_on_changed_molecule_access_levels(
+                project_entry.ipnft_uid,
+                &existing_project.actual_files_map,
+                &molecule_access_levels_map,
+            );
+            detected_changes.extend(changed_versioned_files);
 
             // ... removed files, ...
             existing_project
@@ -1131,6 +1116,38 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
             dataset_id: removed_dataset_id.clone(),
             change: IpnftDataRoomFileChange::Removed,
         });
+    }
+
+    changes
+}
+
+fn prepare_changes_based_on_changed_molecule_access_levels(
+    ipnft_uid: IpnftUid,
+    project_actual_files_map: &HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
+    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
+) -> Vec<ChangedVersionedFile> {
+    let mut changes = Vec::new();
+
+    for (dataset_id, versioned_file) in project_actual_files_map {
+        let current_access = versioned_file.molecule_access_level;
+        let Some(new_access) = molecule_access_levels_map.get(dataset_id).copied() else {
+            tracing::warn!(
+                "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
+                versioned_file.entry.path,
+            );
+            continue;
+        };
+
+        if current_access != new_access {
+            changes.push(ChangedVersionedFile {
+                ipnft_uid,
+                dataset_id: dataset_id.clone(),
+                change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                    from: current_access,
+                    to: new_access,
+                },
+            });
+        }
     }
 
     changes
