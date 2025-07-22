@@ -632,10 +632,12 @@ impl App {
             )
             .entered();
 
-            let versioned_files_entries = versioned_files_entries_map
+            let Some(versioned_files_entries) = versioned_files_entries_map
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
-                .unwrap_or_default();
+            else {
+                continue;
+            };
 
             let changed_versioned_files =
                 prepare_changes_based_on_changed_versioned_files_entries(&versioned_files_entries);
@@ -697,10 +699,13 @@ impl App {
                 continue;
             };
 
-            let versioned_files_entries = versioned_files_entries_map
+            let Some(versioned_files_entries) = versioned_files_entries_map
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
-                .unwrap_or_default();
+            else {
+                continue;
+            };
+
             let changed_versioned_files =
                 prepare_changes_based_on_changed_versioned_files_entries(&versioned_files_entries);
             detected_changes.extend(changed_versioned_files);
