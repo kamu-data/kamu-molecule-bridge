@@ -244,9 +244,7 @@ impl App {
                 .unwrap_or_default();
             (Utc::now() - last_requested_at).num_seconds().try_into()?
         };
-        let interval = self
-            .config
-            .kamu_molecule_bridge_molecule_projects_loading_interval_in_secs;
+        let interval = self.config.molecule_projects_loading_interval_in_secs;
 
         if elapsed_secs >= interval {
             let versioned_file_changes_per_projects =
