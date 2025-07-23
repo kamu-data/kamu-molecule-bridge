@@ -205,9 +205,40 @@ impl App {
         Ok(())
     }
 
-    #[expect(clippy::unused_async)]
     async fn update(&mut self) -> eyre::Result<()> {
         tracing::info!("Performing update loop iteration");
+
+        let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
+
+        let mut writable_state = self.state.clone().write_owned().await;
+
+        let next_block_for_indexing =
+            writable_state.ipnft_and_tokenizer_latest_indexed_block_number + 1;
+        if latest_finalized_block_number <= next_block_for_indexing {
+            tracing::info!(
+                "Skip update iteration as there are no new blocks to index: {latest_finalized_block_number} <= {next_block_for_indexing}"
+            );
+            return Ok(());
+        }
+
+        let IndexingResponse {
+            mut ipnft_changes_map,
+        } = self
+            .indexing(&mut writable_state, latest_finalized_block_number)
+            .await?;
+
+        // TODO: Implement periodic updates instead of every tick
+        let versioned_file_changes_per_projects =
+            self.load_molecule_projects(&mut writable_state).await?;
+
+        for (ipnft_uid, changed_files) in versioned_file_changes_per_projects {
+            let ipnft_changes = ipnft_changes_map.entry(ipnft_uid).or_default();
+            ipnft_changes.changed_files = changed_files;
+        }
+
+        self.interval_access_applying(&writable_state, ipnft_changes_map)
+            .await?;
+
         Ok(())
     }
 
@@ -815,7 +846,7 @@ impl App {
     async fn interval_access_applying(
         &self,
         app_state: &AppState,
-        IndexingResponse { ipnft_changes_map }: IndexingResponse,
+        ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
     ) -> eyre::Result<()> {
         for (ipnft_uid, ipnft_change) in ipnft_changes_map {
             // NOTE: These are post-indexing updates, so all this data must be present.
@@ -896,6 +927,9 @@ impl App {
             .await?;
 
         // Apply operations
+
+        // TODO: Reduce operations count using files diff built from ipnft_change.changed_files
+
         let project_dataset_ids = get_project_dataset_ids(project);
         let operations = build_operations(
             project_dataset_ids,
@@ -1080,6 +1114,7 @@ struct ProcessTokenTransferEventsResponse {
     participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
 }
 
+#[expect(dead_code)]
 #[derive(Debug)]
 struct ChangedVersionedFile {
     dataset_id: DatasetID,
@@ -1088,6 +1123,7 @@ struct ChangedVersionedFile {
 
 type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedFile>>;
 
+#[expect(dead_code)]
 #[derive(Debug)]
 enum IpnftDataRoomFileChange {
     Added(MoleculeAccessLevel),
