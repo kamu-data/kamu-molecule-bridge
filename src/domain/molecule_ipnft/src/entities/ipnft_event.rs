@@ -40,7 +40,7 @@ pub struct IpnftEventBurnt {
     pub former_owner: Address,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Clone)]
 pub struct IpnftEventProjection {
     pub symbol: Option<String>,
     pub current_owner: Option<Address>,

@@ -12,16 +12,26 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.2.0] - 2025-07-23
+### Added
+- Added a configurable interval for querying project changes during cyclic indexing.
+- API: `GET /system/state`: Added logging of applied operations.
+- `SafeWalletApiService`: cheap blockchain calls before expensive Safe Transaction API (HTTP) calls.
+### Changed
+- Improved iterative indexing.
+- `SafeWalletApiService`: result caching for regular addresses as well.
+- `MoleculeAccessLevel`: can be parsed from both upper/lower cases.
+
 ## [0.1.9] - 2025-07-21
 ### Fixed
-- Errors during RPC initialization will be properly directed to tracing
-- Enabled debug info in release builds for ease of troubleshooting
+- Errors during RPC initialization will be properly directed to tracing.
+- Enabled debug info in release builds for ease of troubleshooting.
 
 ## [0.1.8]
 ### Changed
-- Improved Prometheus metrics
+- Improved Prometheus metrics.
 ### Fixed
-- Optimized SQL query that fetches file access levels
+- Optimized SQL query that fetches file access levels.
 
 ## [0.1.7]
 ### Changed
@@ -45,4 +55,4 @@ Recommendation: for ease of reading, use the following order:
 
 ## [0.1.0]
 ### Added
-- Initial bridge version that indexes the state from blockchain but does not apply it to the kamu node yet.
+- Initial bridge version that indexes the state from blockchain but does not apply it to the Kamu Node yet.

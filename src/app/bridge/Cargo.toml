@@ -27,6 +27,7 @@ default = []
 
 [dependencies]
 alloy_ext = { workspace = true }
+chrono = { workspace = true }
 kamu_node_api_client = { workspace = true }
 molecule_contracts = { workspace = true }
 molecule_ipnft = { workspace = true }

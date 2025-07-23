@@ -68,13 +68,16 @@ pub type MoleculeAccessLevelEntryMap =
     HashMap</* versioned_file_dataset_id */ DatasetID, MoleculeAccessLevel>;
 
 // https://discord.com/channels/@me/1364902681159794688/1394272024746135644
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum MoleculeAccessLevel {
+    #[serde(alias = "PUBLIC")]
     Public,
+    #[serde(alias = "ADMIN")]
     Admin,
-    #[serde(rename = "admin_2")]
+    #[serde(rename = "admin_2", alias = "ADMIN_2")]
     Admin2,
+    #[serde(alias = "HOLDER")]
     Holder,
 }
 
@@ -84,7 +87,7 @@ pub struct DataRoomDatasetIdWithOffset {
     pub offset: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AccountDatasetRelationOperation {
     pub account_id: DatasetID,
     pub operation: DatasetRoleOperation,
@@ -117,13 +120,13 @@ impl AccountDatasetRelationOperation {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub enum DatasetRoleOperation {
     Set(DatasetAccessRole),
     Unset,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub enum DatasetAccessRole {
     Reader,
     Maintainer,

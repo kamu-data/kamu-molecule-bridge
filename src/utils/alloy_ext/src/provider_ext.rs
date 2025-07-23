@@ -41,7 +41,7 @@ impl ProviderExt for DynProvider {
             event_signatures_count = event_signatures.len(),
             from = from_block,
             to = to_block,
-            diff = to_block - from_block,
+            diff = to_block.checked_sub(from_block),
         )
     )]
     async fn get_logs_ext<F>(
@@ -92,7 +92,7 @@ impl ProviderExt for DynProvider {
         event_signatures_count = event_signatures.len(),
         from = from_block,
         to = to_block,
-        diff = to_block - from_block,
+        diff = to_block.checked_sub(from_block),
     )
 )]
 async fn get_logs_ext_internal<F>(
@@ -107,7 +107,7 @@ async fn get_logs_ext_internal<F>(
 where
     F: FnMut(LogsChunk) -> eyre::Result<()> + Send + Sync,
 {
-    debug_assert!(to_block >= from_block);
+    debug_assert!(to_block >= from_block, "{to_block} >= {from_block}");
     debug_assert!(!addresses.is_empty());
     debug_assert!(!event_signatures.is_empty());
 

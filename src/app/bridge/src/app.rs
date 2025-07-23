@@ -5,6 +5,7 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use color_eyre::eyre;
 use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::*;
@@ -22,6 +23,9 @@ use crate::config::Config;
 use crate::http_server;
 use crate::http_server::{HttpServeFuture, StateRequester};
 use crate::metrics::BridgeMetrics;
+
+// TODO: Update when it's agreed
+const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
 pub struct App {
     config: Config,
@@ -41,10 +45,20 @@ struct AppState {
     projects_dataset_offset: u64,
 
     ipnft_state_map: HashMap<IpnftUid, IpnftState>,
-    ipnft_latest_indexed_block_number: u64,
+    ipnft_and_tokenizer_latest_indexed_block_number: u64,
 
     token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
     tokens_latest_indexed_block_number: u64,
+
+    molecule_projects_last_requested_at: Option<DateTime<Utc>>,
+
+    access_changes: HashMap<DateTime<Utc>, AccessChanges>,
+}
+
+#[derive(Debug, Serialize)]
+struct AccessChanges {
+    reason: String,
+    operations: Vec<AccountDatasetRelationOperation>,
 }
 
 #[async_trait]
@@ -65,6 +79,7 @@ struct IpnftState {
 #[derive(Debug, Serialize)]
 struct ProjectProjection {
     entry: MoleculeProjectEntry,
+    latest_data_room_offset: u64,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
     removed_files_map: HashMap<DatasetID, VersionedFileEntry>,
 }
@@ -175,15 +190,23 @@ impl App {
 
     async fn init(&mut self) -> eyre::Result<()> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
+        let minimal_ipnft_or_tokenizer_birth_block_minus_one = self
+            .config
+            .ipnft_contract_birth_block
+            .min(self.config.tokenizer_contract_birth_block)
+            - 1;
+        let mut initial_app_state = AppState {
+            ipnft_and_tokenizer_latest_indexed_block_number:
+                minimal_ipnft_or_tokenizer_birth_block_minus_one,
+            ..Default::default()
+        };
 
-        let mut initial_app_state = AppState::default();
+        self.indexing(&mut initial_app_state, latest_finalized_block_number)
+            .await?;
+        self.load_molecule_projects(&mut initial_app_state).await?;
 
-        self.initial_indexing(&mut initial_app_state, latest_finalized_block_number)
-            .await?;
-        self.initial_projects_loading(&mut initial_app_state)
-            .await?;
-        // TODO: index multisig for whitelisted IPNFT
-        self.initial_access_applying(&initial_app_state).await?;
+        // TODO: index multisig for allowlisted IPNFT
+        self.initial_access_applying(&mut initial_app_state).await?;
 
         {
             let mut writable_state = self.state.write().await;
@@ -193,57 +216,144 @@ impl App {
         Ok(())
     }
 
-    #[expect(clippy::unused_async)]
     async fn update(&mut self) -> eyre::Result<()> {
         tracing::info!("Performing update loop iteration");
+
+        let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
+
+        let mut writable_state = self.state.clone().write_owned().await;
+
+        let next_block_for_indexing =
+            writable_state.ipnft_and_tokenizer_latest_indexed_block_number + 1;
+        if latest_finalized_block_number <= next_block_for_indexing {
+            tracing::info!(
+                "Skip update iteration as there are no new blocks to index: {latest_finalized_block_number} <= {next_block_for_indexing}"
+            );
+            return Ok(());
+        }
+
+        let IndexingResponse {
+            mut ipnft_changes_map,
+        } = self
+            .indexing(&mut writable_state, latest_finalized_block_number)
+            .await?;
+
+        let elapsed_secs: u64 = {
+            let last_requested_at = writable_state
+                .molecule_projects_last_requested_at
+                .unwrap_or_default();
+            (Utc::now() - last_requested_at).num_seconds().try_into()?
+        };
+        let interval = self
+            .config
+            .kamu_molecule_bridge_molecule_projects_loading_interval_in_secs;
+
+        if elapsed_secs >= interval {
+            let versioned_file_changes_per_projects =
+                self.load_molecule_projects(&mut writable_state).await?;
+
+            for (ipnft_uid, changed_files) in versioned_file_changes_per_projects {
+                let ipnft_changes = ipnft_changes_map.entry(ipnft_uid).or_default();
+                ipnft_changes.changed_files = changed_files;
+            }
+
+            writable_state.molecule_projects_last_requested_at = Some(Utc::now());
+        }
+
+        self.interval_access_applying(&mut writable_state, ipnft_changes_map)
+            .await?;
+
         Ok(())
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(to_block = to_block))]
-    async fn initial_indexing(
+    async fn indexing(
         &mut self,
         app_state: &mut AppState,
         to_block: u64,
-    ) -> eyre::Result<()> {
-        let minimal_ipnft_tokenizer_birth_block = self
-            .config
-            .ipnft_contract_birth_block
-            .min(self.config.tokenizer_contract_birth_block);
-
+    ) -> eyre::Result<IndexingResponse> {
         let IndexIpnftAndTokenizerContractsResponse {
             ipnft_events,
             tokenizer_events,
         } = self
-            .index_ipnft_and_tokenizer_contracts(minimal_ipnft_tokenizer_birth_block, to_block)
+            .index_ipnft_and_tokenizer_contracts(
+                app_state.ipnft_and_tokenizer_latest_indexed_block_number + 1,
+                to_block,
+            )
             .await?;
 
         let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
-
-        for (ipnft_uid, event_projection) in initial_ipnft_event_projection_map {
-            app_state.ipnft_state_map.insert(
-                ipnft_uid,
-                IpnftState {
-                    ipnft: event_projection,
-                    project: None,
-                    token: None,
-                },
-            );
+        for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
+            let mut just_created = false;
+            let ipnft_state = app_state
+                .ipnft_state_map
+                .entry(*ipnft_uid)
+                .or_insert_with(|| {
+                    just_created = true;
+                    IpnftState {
+                        ipnft: event_projection.clone(),
+                        project: None,
+                        token: None,
+                    }
+                });
+            // NOTE: No need to sync events the first time.
+            if !just_created {
+                IpnftEventProcessingStrategy.synchronize_ipnft_event_projections(
+                    &mut ipnft_state.ipnft,
+                    event_projection.clone(),
+                );
+            }
         }
 
         let ProcessTokenizerEventsResponse {
             minimal_ipt_birth_block,
         } = self.process_tokenizer_events(app_state, tokenizer_events);
 
-        app_state.ipnft_latest_indexed_block_number = to_block;
+        app_state.ipnft_and_tokenizer_latest_indexed_block_number = to_block;
 
-        let token_transfer_events = self
-            .index_tokens(app_state, minimal_ipt_birth_block, to_block)
-            .await?;
-        self.process_token_transfer_events(app_state, token_transfer_events)?;
+        let from_block = if app_state.tokens_latest_indexed_block_number == 0 {
+            minimal_ipt_birth_block
+        } else {
+            app_state.tokens_latest_indexed_block_number + 1
+        };
+        let token_transfer_events = self.index_tokens(app_state, from_block, to_block).await?;
+        let ProcessTokenTransferEventsResponse {
+            participating_holders_balances,
+        } = self.process_token_transfer_events(app_state, token_transfer_events)?;
 
         app_state.tokens_latest_indexed_block_number = to_block;
 
-        Ok(())
+        // Populate IPNFT blockchain changes:
+        let mut ipnft_changes: HashMap<IpnftUid, IpnftChanges> = HashMap::new();
+        // 1. From IPNFT contract
+        for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
+            let ipnft_change = ipnft_changes.entry(ipnft_uid).or_default();
+
+            if ipnft_event_projection.minted && ipnft_event_projection.burnt {
+                // NOTE: IPNFT was burned before we could give access to anyone.
+                //       So there's no need to revoke access from anyone as well.
+                tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
+                ipnft_change.minted_and_burnt = true;
+                continue;
+            }
+
+            ipnft_change.owner_changes.current_owner = ipnft_event_projection.current_owner;
+            ipnft_change.owner_changes.former_owner = ipnft_event_projection.former_owner;
+        }
+        // 2. From IPToken contracts
+        for (ipnft_uid, holders_balances_changes) in participating_holders_balances {
+            let ipnft_change = ipnft_changes.entry(ipnft_uid).or_default();
+
+            if ipnft_change.minted_and_burnt {
+                continue;
+            }
+
+            ipnft_change.holder_balances_changes = holders_balances_changes;
+        }
+
+        Ok(IndexingResponse {
+            ipnft_changes_map: ipnft_changes,
+        })
     }
 
     #[tracing::instrument(
@@ -252,7 +362,7 @@ impl App {
         fields(
             from_block = from_block,
             to_block = to_block,
-            diff = to_block - from_block,
+            diff = to_block.checked_sub(from_block),
         )
     )]
     async fn index_ipnft_and_tokenizer_contracts(
@@ -376,7 +486,7 @@ impl App {
         fields(
             from_block = from_block,
             to_block = to_block,
-            diff = to_block - from_block,
+            diff = to_block.checked_sub(from_block),
         )
     )]
     async fn index_tokens(
@@ -465,6 +575,8 @@ impl App {
                         continue;
                     };
 
+                    debug_assert!(ipnft_state.token.is_none());
+
                     ipnft_state.token = Some(TokenProjection {
                         token_address,
                         // NOTE: Will be populated later
@@ -493,7 +605,9 @@ impl App {
         &mut self,
         app_state: &mut AppState,
         events: Vec<IptEventTransfer>,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<ProcessTokenTransferEventsResponse> {
+        let mut participating_holders_balances = HashMap::<IpnftUid, HashMap<Address, U256>>::new();
+
         for event in events {
             let Some(ipnft_uid) = app_state
                 .token_address_ipnft_uid_mapping
@@ -523,6 +637,11 @@ impl App {
                     .entry(event.from)
                     .or_default();
                 *balance -= event.value;
+
+                let changed_balances = participating_holders_balances
+                    .entry(*ipnft_uid)
+                    .or_default();
+                changed_balances.insert(event.from, *balance);
             }
 
             if event.to != Address::ZERO {
@@ -531,102 +650,425 @@ impl App {
                     .entry(event.to)
                     .or_default();
                 *balance += event.value;
+
+                let changed_balances = participating_holders_balances
+                    .entry(*ipnft_uid)
+                    .or_default();
+                changed_balances.insert(event.from, *balance);
             }
         }
 
-        Ok(())
+        Ok(ProcessTokenTransferEventsResponse {
+            participating_holders_balances,
+        })
     }
 
     #[tracing::instrument(level = "info", skip_all)]
-    async fn initial_projects_loading(&mut self, app_state: &mut AppState) -> eyre::Result<()> {
-        let all_projects_entries = self
+    async fn load_molecule_projects(
+        &mut self,
+        app_state: &mut AppState,
+    ) -> eyre::Result<ChangedVersionedFilePerProjectMap> {
+        // Project updates are based on several principles:
+        // - To query new dataset entries, we use the Ledger storage strategy advantages: for new changes,
+        //   we just need a larger offset.
+        // - In case of checking molecule_access_level changes, we also request information about existing files.
+
+        // I. Preparations.
+        let mut detected_changes_map = HashMap::new();
+
+        // First, check for new files in known projects (if any).
+        let existing_projects = app_state
+            .ipnft_state_map
+            .values_mut()
+            .filter_map(|ipnft_state| ipnft_state.project.as_mut())
+            .collect::<Vec<_>>();
+        let existing_data_room_dataset_ids_with_offsets = existing_projects
+            .iter()
+            .map(|project| DataRoomDatasetIdWithOffset {
+                dataset_id: project.entry.data_room_dataset_id.clone(),
+                offset: project.latest_data_room_offset + 1,
+            })
+            .collect::<Vec<_>>();
+
+        // Second, check for new allowlisted projects.
+        let new_projects_entries = self
             .kamu_node_api_client
-            .get_molecule_project_entries(0) // NOTE: full scan
+            .get_molecule_project_entries(app_state.projects_dataset_offset + 1) // NOTE: only new allowlisted projects
             .await?;
-        let data_room_dataset_ids = all_projects_entries
+        let new_data_room_dataset_ids_with_offsets = new_projects_entries
             .iter()
             .map(|project| DataRoomDatasetIdWithOffset {
                 dataset_id: project.data_room_dataset_id.clone(),
                 offset: 0, // NOTE: full scan
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        // Combine data for batch requests.
+        let data_room_dataset_ids_with_offsets = {
+            let mut ids = Vec::with_capacity(
+                new_data_room_dataset_ids_with_offsets.len()
+                    + existing_data_room_dataset_ids_with_offsets.len(),
+            );
+            ids.extend(new_data_room_dataset_ids_with_offsets);
+            ids.extend(existing_data_room_dataset_ids_with_offsets);
+            ids
+        };
         let mut versioned_files_entries_map = self
             .kamu_node_api_client
-            .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids)
+            .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids_with_offsets)
             .await?;
-        let versioned_file_dataset_ids =
-            versioned_files_entries_map
-                .values()
-                .fold(Vec::new(), |mut acc, entries| {
-                    acc.extend(entries.added_entities.keys().cloned());
-                    acc
-                });
+
+        // Build file "molecule_access_level" mapping:
+        let versioned_file_dataset_ids = {
+            let added_file_entry_dataset_ids =
+                versioned_files_entries_map
+                    .values()
+                    .fold(Vec::new(), |mut acc, entries| {
+                        acc.extend(entries.added_entities.keys().cloned());
+                        acc
+                    });
+            let existing_file_entry_dataset_ids = existing_projects
+                .iter()
+                .flat_map(|project| project.actual_files_map.keys().cloned())
+                .collect::<Vec<_>>();
+
+            let mut ids = Vec::with_capacity(
+                added_file_entry_dataset_ids.len() + existing_file_entry_dataset_ids.len(),
+            );
+            ids.extend(added_file_entry_dataset_ids);
+            ids.extend(existing_file_entry_dataset_ids);
+            ids
+        };
         let molecule_access_levels_map = self
             .kamu_node_api_client
             .get_latest_molecule_access_levels_by_dataset_ids(versioned_file_dataset_ids)
             .await?;
 
-        let mut projects_dataset_offset = 0;
-        for project_entry in all_projects_entries {
+        // II. Process existing projects.
+        for existing_project in existing_projects {
+            let project_entry = &existing_project.entry;
+            let mut detected_changes = Vec::new();
+
             let _span = tracing::debug_span!(
-                "Process project",
+                "Process existing project",
                 symbol = project_entry.symbol,
                 ipnft_uid = %project_entry.ipnft_uid
             )
             .entered();
 
-            projects_dataset_offset = project_entry.offset;
-
-            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
+            let Some(versioned_files_entries) = versioned_files_entries_map
+                // NOTE: try to extract a value from the map
+                .remove(&project_entry.data_room_dataset_id)
             else {
-                tracing::warn!("Skip project because it's not present in blockchain");
                 continue;
             };
 
-            let versioned_files_entries = versioned_files_entries_map
+            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                &versioned_files_entries,
+                &molecule_access_levels_map,
+            );
+            detected_changes.extend(changed_versioned_files);
+
+            let added_file_entries_map = build_added_file_entries_with_molecule_access_level_map(
+                versioned_files_entries.added_entities,
+                &molecule_access_levels_map,
+            );
+
+            // Update actual files ...
+            existing_project.actual_files_map.retain(|dataset_id, _| {
+                versioned_files_entries
+                    .removed_entities
+                    .contains_key(dataset_id)
+            });
+            existing_project
+                .actual_files_map
+                .extend(added_file_entries_map);
+            // ... (and check if molecule_access_level has changed for existing files), ...
+            let changed_versioned_files = prepare_changes_based_on_changed_molecule_access_levels(
+                &existing_project.actual_files_map,
+                &molecule_access_levels_map,
+            );
+            detected_changes.extend(changed_versioned_files);
+
+            // ... removed files, ...
+            existing_project
+                .removed_files_map
+                .extend(versioned_files_entries.removed_entities);
+            // ... and offset.
+            existing_project.latest_data_room_offset =
+                versioned_files_entries.latest_data_room_offset;
+
+            if !detected_changes.is_empty() {
+                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+            }
+        }
+
+        // III. Process new projects.
+        // NOTE: Projects are sorted, so we can simply assign each new value.
+        let mut new_projects_dataset_offset = app_state.projects_dataset_offset;
+
+        for project_entry in new_projects_entries {
+            let mut detected_changes = Vec::new();
+
+            let _span = tracing::debug_span!(
+                "Process new project",
+                symbol = project_entry.symbol,
+                ipnft_uid = %project_entry.ipnft_uid
+            )
+            .entered();
+
+            new_projects_dataset_offset = project_entry.offset;
+
+            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
+            else {
+                tracing::info!("Skip project because it's not present in blockchain");
+                continue;
+            };
+
+            let Some(versioned_files_entries) = versioned_files_entries_map
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
-                .unwrap_or_default();
-            // TODO: extract impl From<...>
-            let actual_files_map = versioned_files_entries
-                .added_entities
-                .into_iter()
-                .filter_map(|(dataset_id, file_entry)| {
-                    let Some(access) = molecule_access_levels_map.get(&dataset_id) else {
-                        tracing::warn!(
-                            "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
-                            file_entry.path,
-                        );
+            else {
+                continue;
+            };
 
-                        return None;
-                    };
+            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                &versioned_files_entries,
+                &molecule_access_levels_map,
+            );
+            detected_changes.extend(changed_versioned_files);
 
-                    Some((
-                        dataset_id,
-                        VersionedFileEntryWithMoleculeAccessLevel {
-                            entry: file_entry,
-                            molecule_access_level: *access,
-                        },
-                    ))
-                })
-                .collect();
+            let actual_files_map = build_added_file_entries_with_molecule_access_level_map(
+                versioned_files_entries.added_entities,
+                &molecule_access_levels_map,
+            );
+
+            if !detected_changes.is_empty() {
+                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+            }
 
             ipnft_state.project = Some(ProjectProjection {
                 entry: project_entry,
+                latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
                 actual_files_map,
                 removed_files_map: versioned_files_entries.removed_entities,
             });
         }
 
-        app_state.projects_dataset_offset = projects_dataset_offset;
+        app_state.projects_dataset_offset = new_projects_dataset_offset;
+
+        Ok(detected_changes_map)
+    }
+
+    #[tracing::instrument(
+        level = "info",
+        skip_all,
+        fields(
+            changed_ipnfts_count = ipnft_changes_map.len(),
+        )
+    )]
+    async fn interval_access_applying(
+        &self,
+        app_state: &mut AppState,
+        ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+    ) -> eyre::Result<()> {
+        for (ipnft_uid, ipnft_change) in ipnft_changes_map {
+            // NOTE: These are post-indexing updates, so all this data must be present.
+            let Some(ipnft_state) = app_state.ipnft_state_map.get(&ipnft_uid) else {
+                bail!("IPNFT state should be present: {ipnft_uid}")
+            };
+
+            let operations = self
+                .interval_access_applying_for_ipnft(ipnft_uid, ipnft_state, ipnft_change)
+                .await?;
+
+            // Apply operations
+            if !operations.is_empty() {
+                app_state.access_changes.insert(
+                    Utc::now(),
+                    AccessChanges {
+                        reason: format!(
+                            "IPNFT ({:?}/{ipnft_uid}) interval update",
+                            ipnft_state.ipnft.symbol
+                        ),
+                        operations: operations.clone(),
+                    },
+                );
+            }
+
+            self.kamu_node_api_client
+                .apply_account_dataset_relations(operations)
+                .await?;
+        }
 
         Ok(())
     }
 
+    #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
+    async fn interval_access_applying_for_ipnft(
+        &self,
+        ipnft_uid: IpnftUid,
+        ipnft_state: &IpnftState,
+        ipnft_change: IpnftChanges,
+    ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
+        if ipnft_change.minted_and_burnt {
+            // Nothing to do
+            return Ok(Vec::new());
+        }
+
+        let Some(project) = &ipnft_state.project else {
+            tracing::info!("Skip IPNFT since there is no project created for it");
+            debug_assert!(ipnft_change.changed_files.is_empty());
+            return Ok(Vec::new());
+        };
+
+        // 1. Process new blockchain data.
+        let blockchain_based_operations = {
+            // Prepare account information
+            let mut current_owners = HashSet::new();
+            let mut holders = HashSet::new();
+            let mut revoke_access_accounts = HashSet::new();
+
+            // TODO: self.get_owners() in parallel for all possible multisig?
+            if let Some(current_owner) = ipnft_change.owner_changes.current_owner {
+                let (owners, _) = self.get_owners(current_owner).await?;
+                current_owners.extend(owners);
+            }
+            if let Some(former_owner) = ipnft_change.owner_changes.former_owner {
+                let (owners, _) = self.get_owners(former_owner).await?;
+                revoke_access_accounts.extend(owners);
+            }
+
+            for (holder, balance) in ipnft_change.holder_balances_changes {
+                if balance > IPT_ACCESS_THRESHOLD {
+                    holders.insert(holder);
+                } else {
+                    revoke_access_accounts.insert(holder);
+                }
+            }
+
+            account_access_sanity_checks(
+                &current_owners,
+                &mut holders,
+                &mut revoke_access_accounts,
+            );
+
+            // Create accounts
+            let CreateAccountsResponse {
+                current_owners_did_pkhs,
+                holders_did_pkhs,
+                revoke_access_accounts_did_pkh,
+            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+
+            let all_accounts_count = current_owners_did_pkhs.len()
+                + holders_did_pkhs.len()
+                + revoke_access_accounts_did_pkh.len();
+            let accounts = {
+                let mut v = Vec::with_capacity(all_accounts_count);
+                v.extend(current_owners_did_pkhs.clone());
+                v.extend(holders_did_pkhs.clone());
+                v.extend(revoke_access_accounts_did_pkh.clone());
+                v
+            };
+
+            self.kamu_node_api_client
+                .create_wallet_accounts(accounts)
+                .await?;
+
+            let project_dataset_ids = get_project_dataset_ids(project);
+
+            build_operations(
+                project_dataset_ids,
+                &current_owners_did_pkhs,
+                &holders_did_pkhs,
+                &revoke_access_accounts_did_pkh,
+            )
+        };
+
+        // 2. Process the project's changes.
+        let operations = if !ipnft_change.changed_files.is_empty() {
+            let GetAccountsByIpnftStateResponse {
+                current_owners,
+                holders,
+                revoke_access_accounts,
+            } = self.get_accounts_by_ipnft_state(ipnft_state).await?;
+            let CreateAccountsResponse {
+                current_owners_did_pkhs,
+                holders_did_pkhs,
+                revoke_access_accounts_did_pkh,
+            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+
+            let mut changed_project_dataset_ids = ProjectDatasetIds::default();
+
+            for changed_file in &ipnft_change.changed_files {
+                match changed_file.change {
+                    IpnftDataRoomFileChange::Added(molecule_access_level) => {
+                        partition_dataset_id_by_molecule_access_level(
+                            &changed_file.dataset_id,
+                            molecule_access_level,
+                            &mut changed_project_dataset_ids.owner_file_dataset_ids,
+                            &mut changed_project_dataset_ids.holder_file_dataset_ids,
+                        );
+                    }
+                    IpnftDataRoomFileChange::Removed => {
+                        changed_project_dataset_ids
+                            .removed_file_dataset_ids
+                            .push(&changed_file.dataset_id);
+                    }
+                    IpnftDataRoomFileChange::MoleculeAccessLevelChanged { from: _, to } => {
+                        partition_dataset_id_by_molecule_access_level(
+                            &changed_file.dataset_id,
+                            to,
+                            &mut changed_project_dataset_ids.owner_file_dataset_ids,
+                            &mut changed_project_dataset_ids.holder_file_dataset_ids,
+                        );
+                    }
+                }
+            }
+
+            let project_based_operations = build_operations(
+                changed_project_dataset_ids,
+                &current_owners_did_pkhs,
+                &holders_did_pkhs,
+                &revoke_access_accounts_did_pkh,
+            );
+
+            let mut operations = Vec::with_capacity(
+                blockchain_based_operations.len() + project_based_operations.len(),
+            );
+            operations.extend(blockchain_based_operations);
+            operations.extend(project_based_operations);
+            operations
+        } else {
+            blockchain_based_operations
+        };
+
+        Ok(operations)
+    }
+
     #[tracing::instrument(level = "info", skip_all)]
-    async fn initial_access_applying(&self, app_state: &AppState) -> eyre::Result<()> {
-        for ipnft_state_pair in &app_state.ipnft_state_map {
-            self.initial_access_applying_for_ipnft(ipnft_state_pair)
+    async fn initial_access_applying(&self, app_state: &mut AppState) -> eyre::Result<()> {
+        for (ipnft_uid, ipnft_state) in &app_state.ipnft_state_map {
+            let operations = self
+                .initial_access_applying_for_ipnft(ipnft_uid, ipnft_state)
+                .await?;
+
+            // Apply operations
+            if !operations.is_empty() {
+                app_state.access_changes.insert(
+                    Utc::now(),
+                    AccessChanges {
+                        reason: format!(
+                            "IPNFT ({:?}/{ipnft_uid}) initial update",
+                            ipnft_state.ipnft.symbol
+                        ),
+                        operations: operations.clone(),
+                    },
+                );
+            }
+
+            self.kamu_node_api_client
+                .apply_account_dataset_relations(operations)
                 .await?;
         }
 
@@ -636,46 +1078,110 @@ impl App {
     #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
     async fn initial_access_applying_for_ipnft(
         &self,
-        (ipnft_uid, ipnft_state): (&IpnftUid, &IpnftState),
-    ) -> eyre::Result<()> {
-        // TODO: Update when it's agreed
-        const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
-
+        ipnft_uid: &IpnftUid,
+        ipnft_state: &IpnftState,
+    ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
         if ipnft_state.ipnft.burnt {
             tracing::info!("Skip burnt IPNFT");
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let Some(project) = &ipnft_state.project else {
             tracing::info!("Skip IPNFT since there is no project created for it");
-            return Ok(());
+            return Ok(Vec::new());
         };
 
-        // Prepare file dataset ids
-        let mut core_file_dataset_ids = Vec::with_capacity(2);
-        let mut owner_file_dataset_ids = Vec::new();
-        let mut holder_file_dataset_ids = Vec::new();
-        let mut removed_file_dataset_ids = Vec::new();
+        // Prepare account information
+        let GetAccountsByIpnftStateResponse {
+            current_owners,
+            holders,
+            revoke_access_accounts,
+        } = self.get_accounts_by_ipnft_state(ipnft_state).await?;
 
-        core_file_dataset_ids.push(project.entry.data_room_dataset_id.clone());
-        core_file_dataset_ids.push(project.entry.announcements_dataset_id.clone());
+        // Create accounts
+        let CreateAccountsResponse {
+            current_owners_did_pkhs,
+            holders_did_pkhs,
+            revoke_access_accounts_did_pkh,
+        } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
 
-        for (dataset_id, entry_with_access_level) in &project.actual_files_map {
-            use MoleculeAccessLevel as Access;
+        let all_accounts_count = current_owners_did_pkhs.len()
+            + holders_did_pkhs.len()
+            + revoke_access_accounts_did_pkh.len();
+        let accounts = {
+            let mut v = Vec::with_capacity(all_accounts_count);
+            v.extend(current_owners_did_pkhs.clone());
+            v.extend(holders_did_pkhs.clone());
+            v.extend(revoke_access_accounts_did_pkh.clone());
+            v
+        };
 
-            match entry_with_access_level.molecule_access_level {
-                Access::Public | Access::Holder => {
-                    holder_file_dataset_ids.push(dataset_id.clone());
-                }
-                Access::Admin | Access::Admin2 => {
-                    owner_file_dataset_ids.push(dataset_id.clone());
-                }
-            }
+        self.kamu_node_api_client
+            .create_wallet_accounts(accounts)
+            .await?;
+
+        // Apply operations
+        let project_dataset_ids = get_project_dataset_ids(project);
+        let operations = build_operations(
+            project_dataset_ids,
+            &current_owners_did_pkhs,
+            &holders_did_pkhs,
+            &revoke_access_accounts_did_pkh,
+        );
+
+        Ok(operations)
+    }
+
+    #[tracing::instrument(level = "debug", skip_all, fields(address = %address))]
+    async fn get_owners(&self, address: Address) -> eyre::Result<(HashSet<Address>, bool)> {
+        // TODO: revoke access from former multisig owners
+
+        let maybe_owners = self.multisig_resolver.get_multisig_owners(address).await?;
+        let multisig = maybe_owners.is_some();
+        let owners = maybe_owners.unwrap_or_else(|| HashSet::from([address]));
+
+        Ok((owners, multisig))
+    }
+
+    fn create_did_phk(&self, address: Address) -> eyre::Result<DidPhk> {
+        DidPhk::new_from_chain_id(self.config.chain_id, address)
+    }
+
+    fn create_did_pkh_accounts(
+        &self,
+        current_owners: HashSet<Address>,
+        holders: HashSet<Address>,
+        revoke_access_accounts: HashSet<Address>,
+    ) -> eyre::Result<CreateAccountsResponse> {
+        let mut current_owners_did_pkhs = Vec::with_capacity(current_owners.len());
+        for current_owner in current_owners {
+            let account = self.create_did_phk(current_owner)?;
+            current_owners_did_pkhs.push(account);
         }
 
-        removed_file_dataset_ids.extend(project.removed_files_map.keys());
+        let mut holders_did_pkhs = Vec::with_capacity(holders.len());
+        for holder in holders {
+            let account = self.create_did_phk(holder)?;
+            holders_did_pkhs.push(account);
+        }
 
-        // Prepare account information
+        let mut revoke_access_accounts_did_pkh = Vec::with_capacity(revoke_access_accounts.len());
+        for holder in revoke_access_accounts {
+            let account = self.create_did_phk(holder)?;
+            revoke_access_accounts_did_pkh.push(account);
+        }
+
+        Ok(CreateAccountsResponse {
+            current_owners_did_pkhs,
+            holders_did_pkhs,
+            revoke_access_accounts_did_pkh,
+        })
+    }
+
+    async fn get_accounts_by_ipnft_state(
+        &self,
+        ipnft_state: &IpnftState,
+    ) -> eyre::Result<GetAccountsByIpnftStateResponse> {
         let mut current_owners = HashSet::new();
         let mut holders = HashSet::new();
         let mut revoke_access_accounts = HashSet::new();
@@ -700,159 +1206,33 @@ impl App {
             }
         }
 
-        // Sanity checks
-        for owner in &current_owners {
-            holders.remove(owner);
-            revoke_access_accounts.remove(owner);
-        }
-        for holder in &holders {
-            revoke_access_accounts.remove(holder);
-        }
+        account_access_sanity_checks(&current_owners, &mut holders, &mut revoke_access_accounts);
 
-        // Create accounts
-        let mut current_owners_did_pkhs = Vec::with_capacity(current_owners.len());
-        for current_owner in current_owners {
-            let account = self.create_did_phk(current_owner)?;
-            current_owners_did_pkhs.push(account);
-        }
-
-        let mut holders_did_pkhs = Vec::with_capacity(holders.len());
-        for holder in holders {
-            let account = self.create_did_phk(holder)?;
-            holders_did_pkhs.push(account);
-        }
-
-        let mut revoke_access_accounts_did_pkh = Vec::with_capacity(revoke_access_accounts.len());
-        for holder in revoke_access_accounts {
-            let account = self.create_did_phk(holder)?;
-            revoke_access_accounts_did_pkh.push(account);
-        }
-
-        let all_accounts_count = current_owners_did_pkhs.len()
-            + holders_did_pkhs.len()
-            + revoke_access_accounts_did_pkh.len();
-        let accounts = {
-            let mut v = Vec::with_capacity(all_accounts_count);
-            v.extend(current_owners_did_pkhs.clone());
-            v.extend(holders_did_pkhs.clone());
-            v.extend(revoke_access_accounts_did_pkh.clone());
-            v
-        };
-
-        self.kamu_node_api_client
-            .create_wallet_accounts(accounts)
-            .await?;
-
-        // Apply operations
-        let all_datasets_count = core_file_dataset_ids.len()
-            + owner_file_dataset_ids.len()
-            + holder_file_dataset_ids.len()
-            + removed_file_dataset_ids.len();
-
-        let mut operations = Vec::with_capacity(all_accounts_count * all_datasets_count);
-
-        for core_file_dataset_id in core_file_dataset_ids {
-            for owner in &current_owners_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::maintainer_access(
-                    owner.to_string(),
-                    core_file_dataset_id.clone(),
-                ));
-            }
-            for holder in &holders_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::reader_access(
-                    holder.to_string(),
-                    core_file_dataset_id.clone(),
-                ));
-            }
-            for revoke_access_account in &revoke_access_accounts_did_pkh {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    revoke_access_account.to_string(),
-                    core_file_dataset_id.clone(),
-                ));
-            }
-        }
-        for owner_file_dataset_id in owner_file_dataset_ids {
-            for owner in &current_owners_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::maintainer_access(
-                    owner.to_string(),
-                    owner_file_dataset_id.clone(),
-                ));
-            }
-            for holder in &holders_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    holder.to_string(),
-                    owner_file_dataset_id.clone(),
-                ));
-            }
-            for revoke_access_account in &revoke_access_accounts_did_pkh {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    revoke_access_account.to_string(),
-                    owner_file_dataset_id.clone(),
-                ));
-            }
-        }
-        for holder_file_dataset_id in holder_file_dataset_ids {
-            for owner in &current_owners_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::maintainer_access(
-                    owner.to_string(),
-                    holder_file_dataset_id.clone(),
-                ));
-            }
-            for holder in &holders_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::reader_access(
-                    holder.to_string(),
-                    holder_file_dataset_id.clone(),
-                ));
-            }
-            for revoke_access_account in &revoke_access_accounts_did_pkh {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    revoke_access_account.to_string(),
-                    holder_file_dataset_id.clone(),
-                ));
-            }
-        }
-        for removed_file_dataset_id in removed_file_dataset_ids {
-            for owner in &current_owners_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    owner.to_string(),
-                    removed_file_dataset_id.clone(),
-                ));
-            }
-            for holder in &holders_did_pkhs {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    holder.to_string(),
-                    removed_file_dataset_id.clone(),
-                ));
-            }
-            for revoke_access_account in &revoke_access_accounts_did_pkh {
-                operations.push(AccountDatasetRelationOperation::revoke_access(
-                    revoke_access_account.to_string(),
-                    removed_file_dataset_id.clone(),
-                ));
-            }
-        }
-
-        self.kamu_node_api_client
-            .apply_account_dataset_relations(operations)
-            .await?;
-
-        Ok(())
+        Ok(GetAccountsByIpnftStateResponse {
+            current_owners,
+            holders,
+            revoke_access_accounts,
+        })
     }
+}
 
-    #[tracing::instrument(level = "debug", skip_all, fields(address = %address))]
-    async fn get_owners(&self, address: Address) -> eyre::Result<(HashSet<Address>, bool)> {
-        // TODO: revoke access from former multisig owners
+#[derive(Debug)]
+struct IndexingResponse {
+    ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+}
 
-        let maybe_owners = self.multisig_resolver.get_multisig_owners(address).await?;
-        let multisig = maybe_owners.is_some();
-        let owners = maybe_owners.unwrap_or_else(|| HashSet::from([address]));
+#[derive(Debug, Default)]
+struct IpnftChanges {
+    minted_and_burnt: bool,
+    owner_changes: OwnerChanges,
+    holder_balances_changes: HashMap<Address, U256>,
+    changed_files: Vec<ChangedVersionedFile>,
+}
 
-        Ok((owners, multisig))
-    }
-
-    fn create_did_phk(&self, address: Address) -> eyre::Result<DidPhk> {
-        DidPhk::new_from_chain_id(self.config.chain_id, address)
-    }
+#[derive(Debug, Default)]
+struct OwnerChanges {
+    former_owner: Option<Address>,
+    current_owner: Option<Address>,
 }
 
 struct IndexIpnftAndTokenizerContractsResponse {
@@ -862,4 +1242,304 @@ struct IndexIpnftAndTokenizerContractsResponse {
 
 struct ProcessTokenizerEventsResponse {
     minimal_ipt_birth_block: u64,
+}
+
+struct ProcessTokenTransferEventsResponse {
+    participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
+}
+
+#[derive(Debug)]
+struct ChangedVersionedFile {
+    dataset_id: DatasetID,
+    change: IpnftDataRoomFileChange,
+}
+
+type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedFile>>;
+
+#[derive(Debug)]
+enum IpnftDataRoomFileChange {
+    Added(MoleculeAccessLevel),
+    Removed,
+    MoleculeAccessLevelChanged {
+        #[expect(dead_code)]
+        from: MoleculeAccessLevel,
+        to: MoleculeAccessLevel,
+    },
+}
+
+struct CreateAccountsResponse {
+    current_owners_did_pkhs: Vec<DidPhk>,
+    holders_did_pkhs: Vec<DidPhk>,
+    revoke_access_accounts_did_pkh: Vec<DidPhk>,
+}
+
+#[derive(Debug, Default)]
+struct ProjectDatasetIds<'a> {
+    core_file_dataset_ids: Vec<&'a DatasetID>,
+    owner_file_dataset_ids: Vec<&'a DatasetID>,
+    holder_file_dataset_ids: Vec<&'a DatasetID>,
+    removed_file_dataset_ids: Vec<&'a DatasetID>,
+}
+
+// Helper methods
+fn build_added_file_entries_with_molecule_access_level_map(
+    added_entities: ChangedVersionedFiles,
+    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
+) -> HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel> {
+    added_entities
+        .into_iter()
+        .filter_map(|(dataset_id, file_entry)| {
+            let Some(access) = molecule_access_levels_map.get(&dataset_id) else {
+                tracing::warn!(
+                    "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
+                    file_entry.path,
+                );
+
+                return None;
+            };
+
+            Some((
+                dataset_id,
+                VersionedFileEntryWithMoleculeAccessLevel {
+                    entry: file_entry,
+                    molecule_access_level: *access,
+                },
+            ))
+        })
+        .collect()
+}
+
+struct GetAccountsByIpnftStateResponse {
+    current_owners: HashSet<Address>,
+    holders: HashSet<Address>,
+    revoke_access_accounts: HashSet<Address>,
+}
+
+fn prepare_changes_based_on_changed_versioned_files_entries(
+    versioned_files_entries: &VersionedFilesEntries,
+    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
+) -> Vec<ChangedVersionedFile> {
+    let mut changes = Vec::with_capacity(
+        versioned_files_entries.added_entities.len()
+            + versioned_files_entries.removed_entities.len(),
+    );
+
+    for (added_dataset_id, versioned_file_entry) in &versioned_files_entries.added_entities {
+        let Some(molecule_access_levels) =
+            molecule_access_levels_map.get(added_dataset_id).copied()
+        else {
+            tracing::warn!(
+                "Skip '{}' adding file ({added_dataset_id}) because molecule_access_level is missing for it",
+                versioned_file_entry.path,
+            );
+            continue;
+        };
+
+        changes.push(ChangedVersionedFile {
+            dataset_id: added_dataset_id.clone(),
+            change: IpnftDataRoomFileChange::Added(molecule_access_levels),
+        });
+    }
+    for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
+        changes.push(ChangedVersionedFile {
+            dataset_id: removed_dataset_id.clone(),
+            change: IpnftDataRoomFileChange::Removed,
+        });
+    }
+
+    changes
+}
+
+fn prepare_changes_based_on_changed_molecule_access_levels(
+    project_actual_files_map: &HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
+    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
+) -> Vec<ChangedVersionedFile> {
+    let mut changes = Vec::new();
+
+    for (dataset_id, versioned_file) in project_actual_files_map {
+        let current_access = versioned_file.molecule_access_level;
+        let Some(new_access) = molecule_access_levels_map.get(dataset_id).copied() else {
+            tracing::warn!(
+                "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
+                versioned_file.entry.path,
+            );
+            continue;
+        };
+
+        if current_access != new_access {
+            changes.push(ChangedVersionedFile {
+                dataset_id: dataset_id.clone(),
+                change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                    from: current_access,
+                    to: new_access,
+                },
+            });
+        }
+    }
+
+    changes
+}
+
+fn account_access_sanity_checks(
+    current_owners: &HashSet<Address>,
+    holders: &mut HashSet<Address>,
+    revoke_access_accounts: &mut HashSet<Address>,
+) {
+    for owner in current_owners {
+        holders.remove(owner);
+        revoke_access_accounts.remove(owner);
+    }
+    for holder in holders.iter() {
+        revoke_access_accounts.remove(holder);
+    }
+}
+
+fn partition_dataset_id_by_molecule_access_level<'a>(
+    dataset_id: &'a DatasetID,
+    molecule_access_level: MoleculeAccessLevel,
+    owner_file_dataset_ids: &mut Vec<&'a DatasetID>,
+    holder_file_dataset_ids: &mut Vec<&'a DatasetID>,
+) {
+    use MoleculeAccessLevel as Access;
+
+    match molecule_access_level {
+        Access::Public | Access::Holder => {
+            holder_file_dataset_ids.push(dataset_id);
+        }
+        Access::Admin | Access::Admin2 => {
+            owner_file_dataset_ids.push(dataset_id);
+        }
+    }
+}
+
+fn get_project_dataset_ids(project: &ProjectProjection) -> ProjectDatasetIds<'_> {
+    let mut owner_file_dataset_ids = Vec::new();
+    let mut holder_file_dataset_ids = Vec::new();
+
+    for (dataset_id, entry_with_access_level) in &project.actual_files_map {
+        partition_dataset_id_by_molecule_access_level(
+            dataset_id,
+            entry_with_access_level.molecule_access_level,
+            &mut owner_file_dataset_ids,
+            &mut holder_file_dataset_ids,
+        );
+    }
+
+    let mut removed_file_dataset_ids = Vec::new();
+    removed_file_dataset_ids.extend(project.removed_files_map.keys());
+
+    ProjectDatasetIds {
+        core_file_dataset_ids: vec![
+            &project.entry.data_room_dataset_id,
+            &project.entry.announcements_dataset_id,
+        ],
+        owner_file_dataset_ids,
+        holder_file_dataset_ids,
+        removed_file_dataset_ids,
+    }
+}
+
+fn build_operations(
+    ProjectDatasetIds {
+        core_file_dataset_ids,
+        owner_file_dataset_ids,
+        holder_file_dataset_ids,
+        removed_file_dataset_ids,
+    }: ProjectDatasetIds,
+    current_owners_did_pkhs: &[DidPhk],
+    holders_did_pkhs: &[DidPhk],
+    revoke_access_accounts_did_pkh: &[DidPhk],
+) -> Vec<AccountDatasetRelationOperation> {
+    let all_accounts_count = current_owners_did_pkhs.len()
+        + holders_did_pkhs.len()
+        + revoke_access_accounts_did_pkh.len();
+    let all_datasets_count = core_file_dataset_ids.len()
+        + owner_file_dataset_ids.len()
+        + holder_file_dataset_ids.len()
+        + removed_file_dataset_ids.len();
+
+    let mut operations = Vec::with_capacity(all_accounts_count * all_datasets_count);
+
+    for core_file_dataset_id in core_file_dataset_ids {
+        for owner in current_owners_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::maintainer_access(
+                owner.to_string(),
+                (*core_file_dataset_id).clone(),
+            ));
+        }
+        for holder in holders_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::reader_access(
+                holder.to_string(),
+                (*core_file_dataset_id).clone(),
+            ));
+        }
+        for revoke_access_account in revoke_access_accounts_did_pkh {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                revoke_access_account.to_string(),
+                (*core_file_dataset_id).clone(),
+            ));
+        }
+    }
+    for owner_file_dataset_id in owner_file_dataset_ids {
+        for owner in current_owners_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::maintainer_access(
+                owner.to_string(),
+                (*owner_file_dataset_id).clone(),
+            ));
+        }
+        for holder in holders_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                holder.to_string(),
+                (*owner_file_dataset_id).clone(),
+            ));
+        }
+        for revoke_access_account in revoke_access_accounts_did_pkh {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                revoke_access_account.to_string(),
+                (*owner_file_dataset_id).clone(),
+            ));
+        }
+    }
+    for holder_file_dataset_id in holder_file_dataset_ids {
+        for owner in current_owners_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::maintainer_access(
+                owner.to_string(),
+                (*holder_file_dataset_id).clone(),
+            ));
+        }
+        for holder in holders_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::reader_access(
+                holder.to_string(),
+                (*holder_file_dataset_id).clone(),
+            ));
+        }
+        for revoke_access_account in revoke_access_accounts_did_pkh {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                revoke_access_account.to_string(),
+                (*holder_file_dataset_id).clone(),
+            ));
+        }
+    }
+    for removed_file_dataset_id in removed_file_dataset_ids {
+        for owner in current_owners_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                owner.to_string(),
+                (*removed_file_dataset_id).clone(),
+            ));
+        }
+        for holder in holders_did_pkhs {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                holder.to_string(),
+                (*removed_file_dataset_id).clone(),
+            ));
+        }
+        for revoke_access_account in revoke_access_accounts_did_pkh {
+            operations.push(AccountDatasetRelationOperation::revoke_access(
+                revoke_access_account.to_string(),
+                (*removed_file_dataset_id).clone(),
+            ));
+        }
+    }
+
+    operations
 }
