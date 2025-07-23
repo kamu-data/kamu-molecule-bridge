@@ -84,7 +84,7 @@ pub struct DataRoomDatasetIdWithOffset {
     pub offset: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AccountDatasetRelationOperation {
     pub account_id: DatasetID,
     pub operation: DatasetRoleOperation,
@@ -117,13 +117,13 @@ impl AccountDatasetRelationOperation {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub enum DatasetRoleOperation {
     Set(DatasetAccessRole),
     Unset,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub enum DatasetAccessRole {
     Reader,
     Maintainer,

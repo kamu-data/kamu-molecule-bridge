@@ -51,6 +51,14 @@ struct AppState {
     tokens_latest_indexed_block_number: u64,
 
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
+
+    access_changes: HashMap<DateTime<Utc>, AccessChanges>,
+}
+
+#[derive(Debug, Serialize)]
+struct AccessChanges {
+    reason: String,
+    operations: Vec<AccountDatasetRelationOperation>,
 }
 
 #[async_trait]
@@ -198,7 +206,7 @@ impl App {
         self.load_molecule_projects(&mut initial_app_state).await?;
 
         // TODO: index multisig for allowlisted IPNFT
-        self.initial_access_applying(&initial_app_state).await?;
+        self.initial_access_applying(&mut initial_app_state).await?;
 
         {
             let mut writable_state = self.state.write().await;
@@ -252,7 +260,7 @@ impl App {
             writable_state.molecule_projects_last_requested_at = Some(Utc::now());
         }
 
-        self.interval_access_applying(&writable_state, ipnft_changes_map)
+        self.interval_access_applying(&mut writable_state, ipnft_changes_map)
             .await?;
 
         Ok(())
@@ -861,7 +869,7 @@ impl App {
     )]
     async fn interval_access_applying(
         &self,
-        app_state: &AppState,
+        app_state: &mut AppState,
         ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
     ) -> eyre::Result<()> {
         for (ipnft_uid, ipnft_change) in ipnft_changes_map {
@@ -870,7 +878,26 @@ impl App {
                 bail!("IPNFT state should be present: {ipnft_uid}")
             };
 
-            self.interval_access_applying_for_ipnft(ipnft_uid, ipnft_state, ipnft_change)
+            let operations = self
+                .interval_access_applying_for_ipnft(ipnft_uid, ipnft_state, ipnft_change)
+                .await?;
+
+            // Apply operations
+            if !operations.is_empty() {
+                app_state.access_changes.insert(
+                    Utc::now(),
+                    AccessChanges {
+                        reason: format!(
+                            "IPNFT ({:?}/{ipnft_uid}) interval update",
+                            ipnft_state.ipnft.symbol
+                        ),
+                        operations: operations.clone(),
+                    },
+                );
+            }
+
+            self.kamu_node_api_client
+                .apply_account_dataset_relations(operations)
                 .await?;
         }
 
@@ -883,16 +910,16 @@ impl App {
         ipnft_uid: IpnftUid,
         ipnft_state: &IpnftState,
         ipnft_change: IpnftChanges,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
         if ipnft_change.minted_and_burnt {
             // Nothing to do
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let Some(project) = &ipnft_state.project else {
             tracing::info!("Skip IPNFT since there is no project created for it");
             debug_assert!(ipnft_change.changed_files.is_empty());
-            return Ok(());
+            return Ok(Vec::new());
         };
 
         // 1. Process new blockchain data.
@@ -1016,18 +1043,32 @@ impl App {
             blockchain_based_operations
         };
 
-        // Apply operations
-        self.kamu_node_api_client
-            .apply_account_dataset_relations(operations)
-            .await?;
-
-        Ok(())
+        Ok(operations)
     }
 
     #[tracing::instrument(level = "info", skip_all)]
-    async fn initial_access_applying(&self, app_state: &AppState) -> eyre::Result<()> {
-        for ipnft_state_pair in &app_state.ipnft_state_map {
-            self.initial_access_applying_for_ipnft(ipnft_state_pair)
+    async fn initial_access_applying(&self, app_state: &mut AppState) -> eyre::Result<()> {
+        for (ipnft_uid, ipnft_state) in &app_state.ipnft_state_map {
+            let operations = self
+                .initial_access_applying_for_ipnft(ipnft_uid, ipnft_state)
+                .await?;
+
+            // Apply operations
+            if !operations.is_empty() {
+                app_state.access_changes.insert(
+                    Utc::now(),
+                    AccessChanges {
+                        reason: format!(
+                            "IPNFT ({:?}/{ipnft_uid}) initial update",
+                            ipnft_state.ipnft.symbol
+                        ),
+                        operations: operations.clone(),
+                    },
+                );
+            }
+
+            self.kamu_node_api_client
+                .apply_account_dataset_relations(operations)
                 .await?;
         }
 
@@ -1037,16 +1078,17 @@ impl App {
     #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
     async fn initial_access_applying_for_ipnft(
         &self,
-        (ipnft_uid, ipnft_state): (&IpnftUid, &IpnftState),
-    ) -> eyre::Result<()> {
+        ipnft_uid: &IpnftUid,
+        ipnft_state: &IpnftState,
+    ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
         if ipnft_state.ipnft.burnt {
             tracing::info!("Skip burnt IPNFT");
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let Some(project) = &ipnft_state.project else {
             tracing::info!("Skip IPNFT since there is no project created for it");
-            return Ok(());
+            return Ok(Vec::new());
         };
 
         // Prepare account information
@@ -1087,11 +1129,7 @@ impl App {
             &revoke_access_accounts_did_pkh,
         );
 
-        self.kamu_node_api_client
-            .apply_account_dataset_relations(operations)
-            .await?;
-
-        Ok(())
+        Ok(operations)
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(address = %address))]
@@ -1210,7 +1248,6 @@ struct ProcessTokenTransferEventsResponse {
     participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
 }
 
-#[expect(dead_code)]
 #[derive(Debug)]
 struct ChangedVersionedFile {
     dataset_id: DatasetID,
@@ -1219,12 +1256,12 @@ struct ChangedVersionedFile {
 
 type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedFile>>;
 
-#[expect(dead_code)]
 #[derive(Debug)]
 enum IpnftDataRoomFileChange {
     Added(MoleculeAccessLevel),
     Removed,
     MoleculeAccessLevelChanged {
+        #[expect(dead_code)]
         from: MoleculeAccessLevel,
         to: MoleculeAccessLevel,
     },
