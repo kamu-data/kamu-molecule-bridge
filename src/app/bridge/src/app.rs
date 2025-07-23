@@ -515,7 +515,7 @@ impl App {
         app_state: &mut AppState,
         events: Vec<IptEventTransfer>,
     ) -> eyre::Result<ProcessTokenTransferEventsResponse> {
-        let mut participating_holders_balances = HashMap::new();
+        let mut participating_holders_balances = HashMap::<IpnftUid, HashMap<Address, U256>>::new();
 
         for event in events {
             let Some(ipnft_uid) = app_state
@@ -547,7 +547,10 @@ impl App {
                     .or_default();
                 *balance -= event.value;
 
-                participating_holders_balances.insert(event.from, *balance);
+                let changed_balances = participating_holders_balances
+                    .entry(*ipnft_uid)
+                    .or_default();
+                changed_balances.insert(event.from, *balance);
             }
 
             if event.to != Address::ZERO {
@@ -557,7 +560,10 @@ impl App {
                     .or_default();
                 *balance += event.value;
 
-                participating_holders_balances.insert(event.to, *balance);
+                let changed_balances = participating_holders_balances
+                    .entry(*ipnft_uid)
+                    .or_default();
+                changed_balances.insert(event.from, *balance);
             }
         }
 
@@ -994,7 +1000,7 @@ impl App {
 #[derive(Debug)]
 struct IndexingResponse {
     ipnft_event_processing_decisions: Vec<IpnftEventProcessingDecision>,
-    participating_holders_balances: HashMap<Address, U256>,
+    participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
 }
 
 struct IndexIpnftAndTokenizerContractsResponse {
@@ -1007,7 +1013,7 @@ struct ProcessTokenizerEventsResponse {
 }
 
 struct ProcessTokenTransferEventsResponse {
-    participating_holders_balances: HashMap<Address, U256>,
+    participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
 }
 
 #[derive(Debug)]
