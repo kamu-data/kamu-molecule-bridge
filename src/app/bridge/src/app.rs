@@ -5,6 +5,7 @@ use alloy::primitives::{Address, U256};
 use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use color_eyre::eyre;
 use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::*;
@@ -48,6 +49,8 @@ struct AppState {
 
     token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
     tokens_latest_indexed_block_number: u64,
+
+    molecule_projects_last_requested_at: Option<DateTime<Utc>>,
 }
 
 #[async_trait]
@@ -227,13 +230,26 @@ impl App {
             .indexing(&mut writable_state, latest_finalized_block_number)
             .await?;
 
-        // TODO: Implement periodic updates instead of every tick
-        let versioned_file_changes_per_projects =
-            self.load_molecule_projects(&mut writable_state).await?;
+        let elapsed_secs: u64 = {
+            let last_requested_at = writable_state
+                .molecule_projects_last_requested_at
+                .unwrap_or_default();
+            (Utc::now() - last_requested_at).num_seconds().try_into()?
+        };
+        let interval = self
+            .config
+            .kamu_molecule_bridge_molecule_projects_loading_interval_in_secs;
 
-        for (ipnft_uid, changed_files) in versioned_file_changes_per_projects {
-            let ipnft_changes = ipnft_changes_map.entry(ipnft_uid).or_default();
-            ipnft_changes.changed_files = changed_files;
+        if elapsed_secs >= interval {
+            let versioned_file_changes_per_projects =
+                self.load_molecule_projects(&mut writable_state).await?;
+
+            for (ipnft_uid, changed_files) in versioned_file_changes_per_projects {
+                let ipnft_changes = ipnft_changes_map.entry(ipnft_uid).or_default();
+                ipnft_changes.changed_files = changed_files;
+            }
+
+            writable_state.molecule_projects_last_requested_at = Some(Utc::now());
         }
 
         self.interval_access_applying(&writable_state, ipnft_changes_map)

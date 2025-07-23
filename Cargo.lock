@@ -2647,6 +2647,7 @@ dependencies = [
  "alloy_ext",
  "async-trait",
  "axum 0.8.4",
+ "chrono",
  "clap",
  "color-eyre",
  "confique",

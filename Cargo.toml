@@ -46,6 +46,7 @@ axum = { version = "0.8", default-features = false, features = [
 # TODO: use eyre and color-eyre only in app crate
 # TODO: remove extra features
 #       https://github.com/eyre-rs/eyre/tree/master/color-eyre
+chrono = { version = "0.4", default-features = false, features = ["now", "serde"] }
 color-eyre = { version = "0.6" }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.13", default-features = false }
@@ -128,7 +129,7 @@ multiple_crate_versions = { level = "allow", priority = 1 }
 [profile.dev]
 # Change this to 1 for faster builds that still preserve enough info for backtraces.
 # Use 2 when you need to attach a debugger.
-debug = 2
+debug = 1
 
 
 # Emit the line info tables for our crates to produce useful crash reports and backtraces.

@@ -13,6 +13,8 @@ Recommendation: for ease of reading, use the following order:
 -->
 
 ## [0.2.0] - 2025-07-23
+### Added
+- Added a configurable interval for querying project changes during cyclic indexing.
 ### Changed
 - Improved iterative indexing.
 

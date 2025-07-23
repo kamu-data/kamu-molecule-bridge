@@ -20,6 +20,9 @@ pub struct Config {
     #[config(env = "KAMU_MOLECULE_BRIDGE_MOLECULE_PROJECTS_DATASET_ALIAS")]
     pub molecule_projects_dataset_alias: String,
 
+    #[config(env = "KAMU_MOLECULE_BRIDGE_MOLECULE_PROJECTS_LOADING_INTERVAL_IN_SECS")]
+    pub kamu_molecule_bridge_molecule_projects_loading_interval_in_secs: u64,
+
     /// ID of the chain that RCP URL is expected to point to
     #[config(env = "KAMU_MOLECULE_BRIDGE_CHAIN_ID")]
     pub chain_id: u64,
