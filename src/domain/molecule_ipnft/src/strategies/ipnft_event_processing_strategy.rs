@@ -1,22 +1,8 @@
 use std::collections::HashMap;
 
-use alloy::primitives::Address;
-
 use crate::entities::{IpnftEvent, IpnftEventProjection, IpnftUid};
 
 pub type IpnftEventProjectionMap = HashMap<IpnftUid, IpnftEventProjection>;
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum IpnftEventProcessingDecision {
-    GrantMaintainerAccess {
-        ipnft_uid: IpnftUid,
-        address: Address,
-    },
-    RevokeMaintainerAccess {
-        ipnft_uid: IpnftUid,
-        address: Address,
-    },
-}
 
 pub struct IpnftEventProcessingStrategy;
 
@@ -49,38 +35,6 @@ impl IpnftEventProcessingStrategy {
         }
 
         iteration_projections_map
-    }
-
-    pub fn build_decisions(
-        &self,
-        projections_map: &IpnftEventProjectionMap,
-    ) -> Vec<IpnftEventProcessingDecision> {
-        let mut decisions = Vec::new();
-
-        for (ipnft_uid, projection) in projections_map {
-            if projection.minted && projection.burnt {
-                // NOTE: IPNFT was burned before we could give access to anyone.
-                //       So there's no need to revoke access from anyone as well.
-                tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
-                continue;
-            }
-
-            if let Some(current_owner) = projection.current_owner {
-                decisions.push(IpnftEventProcessingDecision::GrantMaintainerAccess {
-                    ipnft_uid: *ipnft_uid,
-                    address: current_owner,
-                });
-            }
-
-            if let Some(former_owner) = projection.former_owner {
-                decisions.push(IpnftEventProcessingDecision::RevokeMaintainerAccess {
-                    ipnft_uid: *ipnft_uid,
-                    address: former_owner,
-                });
-            }
-        }
-
-        decisions
     }
 
     pub fn synchronize_ipnft_event_projections(

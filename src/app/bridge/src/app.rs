@@ -11,7 +11,7 @@ use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
 use molecule_contracts::{IPNFT, IPToken, Synthesizer, Tokenizer};
 use molecule_ipnft::entities::*;
-use molecule_ipnft::strategies::{IpnftEventProcessingDecision, IpnftEventProcessingStrategy};
+use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
 use serde::{Serialize, Serializer};
 use serde_json::Value;
@@ -218,14 +218,11 @@ impl App {
             .await?;
 
         let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
-        let detected_changes_map =
-            IpnftEventProcessingStrategy.build_decisions(&initial_ipnft_event_projection_map);
-
-        for (ipnft_uid, event_projection) in initial_ipnft_event_projection_map {
+        for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
             let mut just_created = false;
             let ipnft_state = app_state
                 .ipnft_state_map
-                .entry(ipnft_uid)
+                .entry(*ipnft_uid)
                 .or_insert_with(|| {
                     just_created = true;
                     IpnftState {
@@ -236,8 +233,10 @@ impl App {
                 });
             // NOTE: No need to sync events the first time.
             if !just_created {
-                IpnftEventProcessingStrategy
-                    .synchronize_ipnft_event_projections(&mut ipnft_state.ipnft, event_projection);
+                IpnftEventProcessingStrategy.synchronize_ipnft_event_projections(
+                    &mut ipnft_state.ipnft,
+                    event_projection.clone(),
+                );
             }
         }
 
@@ -259,10 +258,35 @@ impl App {
 
         app_state.tokens_latest_indexed_block_number = to_block;
 
-        Ok(IndexingResponse {
-            ipnft_event_processing_decisions: detected_changes_map,
-            participating_holders_balances,
-        })
+        // Populate IPNFT blockchain changes:
+        let mut ipnft_changes: HashMap<IpnftUid, IpnftChange> = HashMap::new();
+        // 1. From IPNFT contract
+        for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
+            let ipnft_change = ipnft_changes.entry(ipnft_uid).or_default();
+
+            if ipnft_event_projection.minted && ipnft_event_projection.burnt {
+                // NOTE: IPNFT was burned before we could give access to anyone.
+                //       So there's no need to revoke access from anyone as well.
+                tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
+                ipnft_change.minted_and_burnt = true;
+                continue;
+            }
+
+            ipnft_change.owner_changes.current_owner = ipnft_event_projection.current_owner;
+            ipnft_change.owner_changes.former_owner = ipnft_event_projection.former_owner;
+        }
+        // 2. From IPToken contracts
+        for (ipnft_uid, holders_balances_changes) in participating_holders_balances {
+            let ipnft_change = ipnft_changes.entry(ipnft_uid).or_default();
+
+            if ipnft_change.minted_and_burnt {
+                continue;
+            }
+
+            ipnft_change.holder_balances_changes = holders_balances_changes;
+        }
+
+        Ok(IndexingResponse { ipnft_changes })
     }
 
     #[tracing::instrument(
@@ -672,8 +696,10 @@ impl App {
                 continue;
             };
 
-            let changed_versioned_files =
-                prepare_changes_based_on_changed_versioned_files_entries(&versioned_files_entries);
+            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                &versioned_files_entries,
+                &molecule_access_levels_map,
+            );
             detected_changes.extend(changed_versioned_files);
 
             let added_file_entries_map = build_added_file_entries_with_molecule_access_level_map(
@@ -739,8 +765,10 @@ impl App {
                 continue;
             };
 
-            let changed_versioned_files =
-                prepare_changes_based_on_changed_versioned_files_entries(&versioned_files_entries);
+            let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                &versioned_files_entries,
+                &molecule_access_levels_map,
+            );
             detected_changes.extend(changed_versioned_files);
 
             let actual_files_map = build_added_file_entries_with_molecule_access_level_map(
@@ -999,8 +1027,21 @@ impl App {
 
 #[derive(Debug)]
 struct IndexingResponse {
-    ipnft_event_processing_decisions: Vec<IpnftEventProcessingDecision>,
-    participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
+    ipnft_changes: HashMap<IpnftUid, IpnftChange>,
+}
+
+#[derive(Debug, Default)]
+struct IpnftChange {
+    minted_and_burnt: bool,
+    owner_changes: OwnerChanges,
+    holder_balances_changes: HashMap<Address, U256>,
+    changed_files: Vec<ChangedVersionedFile>,
+}
+
+#[derive(Debug, Default)]
+struct OwnerChanges {
+    pub former_owner: Option<Address>,
+    pub current_owner: Option<Address>,
 }
 
 struct IndexIpnftAndTokenizerContractsResponse {
@@ -1026,7 +1067,7 @@ type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedF
 
 #[derive(Debug)]
 enum IpnftDataRoomFileChange {
-    Added,
+    Added(MoleculeAccessLevel),
     Removed,
     MoleculeAccessLevelChanged {
         from: MoleculeAccessLevel,
@@ -1064,16 +1105,27 @@ fn build_added_file_entries_with_molecule_access_level_map(
 
 fn prepare_changes_based_on_changed_versioned_files_entries(
     versioned_files_entries: &VersionedFilesEntries,
+    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
 ) -> Vec<ChangedVersionedFile> {
     let mut changes = Vec::with_capacity(
         versioned_files_entries.added_entities.len()
             + versioned_files_entries.removed_entities.len(),
     );
 
-    for added_dataset_id in versioned_files_entries.added_entities.keys() {
+    for (added_dataset_id, versioned_file_entry) in &versioned_files_entries.added_entities {
+        let Some(molecule_access_levels) =
+            molecule_access_levels_map.get(added_dataset_id).copied()
+        else {
+            tracing::warn!(
+                "Skip '{}' adding file ({added_dataset_id}) because molecule_access_level is missing for it",
+                versioned_file_entry.path,
+            );
+            continue;
+        };
+
         changes.push(ChangedVersionedFile {
             dataset_id: added_dataset_id.clone(),
-            change: IpnftDataRoomFileChange::Added,
+            change: IpnftDataRoomFileChange::Added(molecule_access_levels),
         });
     }
     for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
