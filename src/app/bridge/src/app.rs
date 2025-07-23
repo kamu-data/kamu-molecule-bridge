@@ -1096,7 +1096,7 @@ impl App {
             current_owners,
             holders,
             revoke_access_accounts,
-        } = self.get_accounts_by_ipnft_state(&ipnft_state).await?;
+        } = self.get_accounts_by_ipnft_state(ipnft_state).await?;
 
         // Create accounts
         let CreateAccountsResponse {
