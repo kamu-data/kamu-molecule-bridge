@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 #[derive(Default)]
 struct State {
-    cache_multisig_address_owners_mapping: HashMap<Address, HashSet<Address>>,
+    cache_multisig_address_owners_mapping: HashMap<Address, Option<HashSet<Address>>>,
 }
 
 /// Safe Wallet Service for interacting with Safe Transaction Service API
@@ -55,15 +55,13 @@ impl MultisigResolver for SafeWalletApiService {
         &self,
         address: Address,
     ) -> eyre::Result<Option<HashSet<Address>>> {
-        // First trying from cache
         {
             let readable_state = self.state.read().await;
-
-            if let Some(cached_owners) = readable_state
+            if let Some(cached_result) = readable_state
                 .cache_multisig_address_owners_mapping
                 .get(&address)
             {
-                return Ok(Some(cached_owners.clone()));
+                return Ok(cached_result.clone());
             }
         }
 
@@ -76,7 +74,16 @@ impl MultisigResolver for SafeWalletApiService {
             StatusCode::OK => {
                 // Continue processing
             }
-            StatusCode::NOT_FOUND => return Ok(None),
+            StatusCode::NOT_FOUND => {
+                {
+                    let mut writable_state = self.state.write().await;
+                    writable_state
+                        .cache_multisig_address_owners_mapping
+                        .insert(address, None);
+                }
+
+                return Ok(None);
+            }
             unexpected => bail!("Unexpected status code: {unexpected}"),
         }
 
@@ -92,13 +99,11 @@ impl MultisigResolver for SafeWalletApiService {
 
         let owners = response.owners.into_iter().collect::<HashSet<_>>();
 
-        // Update the cache
         {
             let mut writable_state = self.state.write().await;
-
             writable_state
                 .cache_multisig_address_owners_mapping
-                .insert(address, owners.clone());
+                .insert(address, Some(owners.clone()));
         }
 
         Ok(Some(owners))

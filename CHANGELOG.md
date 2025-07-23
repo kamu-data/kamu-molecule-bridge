@@ -18,6 +18,7 @@ Recommendation: for ease of reading, use the following order:
 - API: `GET /system/state`: Added logging of applied operations.
 ### Changed
 - Improved iterative indexing.
+- `SafeWalletApiService`: result caching for regular addresses as well.
 
 ## [0.1.9] - 2025-07-21
 ### Fixed
