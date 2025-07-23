@@ -71,10 +71,13 @@ pub type MoleculeAccessLevelEntryMap =
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum MoleculeAccessLevel {
+    #[serde(alias = "PUBLIC")]
     Public,
+    #[serde(alias = "ADMIN")]
     Admin,
-    #[serde(rename = "admin_2")]
+    #[serde(rename = "admin_2", alias = "ADMIN_2")]
     Admin2,
+    #[serde(alias = "HOLDER")]
     Holder,
 }
 

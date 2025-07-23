@@ -20,6 +20,7 @@ Recommendation: for ease of reading, use the following order:
 ### Changed
 - Improved iterative indexing.
 - `SafeWalletApiService`: result caching for regular addresses as well.
+- `MoleculeAccessLevel`: can be parsed from both upper/lower cases.
 
 ## [0.1.9] - 2025-07-21
 ### Fixed
