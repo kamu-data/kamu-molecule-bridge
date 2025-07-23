@@ -16,6 +16,7 @@ Recommendation: for ease of reading, use the following order:
 ### Added
 - Added a configurable interval for querying project changes during cyclic indexing.
 - API: `GET /system/state`: Added logging of applied operations.
+- `SafeWalletApiService`: cheap blockchain calls before expensive Safe Transaction API (HTTP) calls.
 ### Changed
 - Improved iterative indexing.
 - `SafeWalletApiService`: result caching for regular addresses as well.

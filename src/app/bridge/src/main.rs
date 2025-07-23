@@ -65,8 +65,10 @@ async fn main_app(config: Config, args: Cli) -> eyre::Result<()> {
 
     let rpc_client = build_rpc_client(&config, &metrics).await?;
 
-    let safe_wallet_api_service =
-        Arc::new(SafeWalletApiService::new_from_chain_id(config.chain_id)?);
+    let safe_wallet_api_service = Arc::new(SafeWalletApiService::new_from_chain_id(
+        config.chain_id,
+        rpc_client.clone(),
+    )?);
 
     let kamu_node_api_client = build_kamu_node_client(&config, &metrics);
 
