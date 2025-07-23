@@ -879,65 +879,128 @@ impl App {
             return Ok(());
         };
 
-        // Prepare account information
-        let mut current_owners = HashSet::new();
-        let mut holders = HashSet::new();
-        let mut revoke_access_accounts = HashSet::new();
+        // 1. Process new blockchain data.
+        let blockchain_based_operations = {
+            // Prepare account information
+            let mut current_owners = HashSet::new();
+            let mut holders = HashSet::new();
+            let mut revoke_access_accounts = HashSet::new();
 
-        // TODO: self.get_owners() in parallel for all possible multisig?
-        if let Some(current_owner) = ipnft_change.owner_changes.current_owner {
-            let (owners, _) = self.get_owners(current_owner).await?;
-            current_owners.extend(owners);
-        }
-        if let Some(former_owner) = ipnft_change.owner_changes.former_owner {
-            let (owners, _) = self.get_owners(former_owner).await?;
-            revoke_access_accounts.extend(owners);
-        }
-
-        for (holder, balance) in ipnft_change.holder_balances_changes {
-            if balance > IPT_ACCESS_THRESHOLD {
-                holders.insert(holder);
-            } else {
-                revoke_access_accounts.insert(holder);
+            // TODO: self.get_owners() in parallel for all possible multisig?
+            if let Some(current_owner) = ipnft_change.owner_changes.current_owner {
+                let (owners, _) = self.get_owners(current_owner).await?;
+                current_owners.extend(owners);
             }
-        }
+            if let Some(former_owner) = ipnft_change.owner_changes.former_owner {
+                let (owners, _) = self.get_owners(former_owner).await?;
+                revoke_access_accounts.extend(owners);
+            }
 
-        account_access_sanity_checks(&current_owners, &mut holders, &mut revoke_access_accounts);
+            for (holder, balance) in ipnft_change.holder_balances_changes {
+                if balance > IPT_ACCESS_THRESHOLD {
+                    holders.insert(holder);
+                } else {
+                    revoke_access_accounts.insert(holder);
+                }
+            }
 
-        // Create accounts
-        let CreateAccountsResponse {
-            current_owners_did_pkhs,
-            holders_did_pkhs,
-            revoke_access_accounts_did_pkh,
-        } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+            account_access_sanity_checks(
+                &current_owners,
+                &mut holders,
+                &mut revoke_access_accounts,
+            );
 
-        let all_accounts_count = current_owners_did_pkhs.len()
-            + holders_did_pkhs.len()
-            + revoke_access_accounts_did_pkh.len();
-        let accounts = {
-            let mut v = Vec::with_capacity(all_accounts_count);
-            v.extend(current_owners_did_pkhs.clone());
-            v.extend(holders_did_pkhs.clone());
-            v.extend(revoke_access_accounts_did_pkh.clone());
-            v
+            // Create accounts
+            let CreateAccountsResponse {
+                current_owners_did_pkhs,
+                holders_did_pkhs,
+                revoke_access_accounts_did_pkh,
+            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+
+            let all_accounts_count = current_owners_did_pkhs.len()
+                + holders_did_pkhs.len()
+                + revoke_access_accounts_did_pkh.len();
+            let accounts = {
+                let mut v = Vec::with_capacity(all_accounts_count);
+                v.extend(current_owners_did_pkhs.clone());
+                v.extend(holders_did_pkhs.clone());
+                v.extend(revoke_access_accounts_did_pkh.clone());
+                v
+            };
+
+            self.kamu_node_api_client
+                .create_wallet_accounts(accounts)
+                .await?;
+
+            let project_dataset_ids = get_project_dataset_ids(project);
+
+            build_operations(
+                project_dataset_ids,
+                &current_owners_did_pkhs,
+                &holders_did_pkhs,
+                &revoke_access_accounts_did_pkh,
+            )
         };
 
-        self.kamu_node_api_client
-            .create_wallet_accounts(accounts)
-            .await?;
+        // 2. Process the project's changes.
+        let operations = if !ipnft_change.changed_files.is_empty() {
+            let GetAccountsByIpnftStateResponse {
+                current_owners,
+                holders,
+                revoke_access_accounts,
+            } = self.get_accounts_by_ipnft_state(ipnft_state).await?;
+            let CreateAccountsResponse {
+                current_owners_did_pkhs,
+                holders_did_pkhs,
+                revoke_access_accounts_did_pkh,
+            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+
+            let mut changed_project_dataset_ids = ProjectDatasetIds::default();
+
+            for changed_file in &ipnft_change.changed_files {
+                match changed_file.change {
+                    IpnftDataRoomFileChange::Added(molecule_access_level) => {
+                        partition_dataset_id_by_molecule_access_level(
+                            &changed_file.dataset_id,
+                            molecule_access_level,
+                            &mut changed_project_dataset_ids.owner_file_dataset_ids,
+                            &mut changed_project_dataset_ids.holder_file_dataset_ids,
+                        );
+                    }
+                    IpnftDataRoomFileChange::Removed => {
+                        changed_project_dataset_ids
+                            .removed_file_dataset_ids
+                            .push(&changed_file.dataset_id);
+                    }
+                    IpnftDataRoomFileChange::MoleculeAccessLevelChanged { from: _, to } => {
+                        partition_dataset_id_by_molecule_access_level(
+                            &changed_file.dataset_id,
+                            to,
+                            &mut changed_project_dataset_ids.owner_file_dataset_ids,
+                            &mut changed_project_dataset_ids.holder_file_dataset_ids,
+                        );
+                    }
+                }
+            }
+
+            let project_based_operations = build_operations(
+                changed_project_dataset_ids,
+                &current_owners_did_pkhs,
+                &holders_did_pkhs,
+                &revoke_access_accounts_did_pkh,
+            );
+
+            let mut operations = Vec::with_capacity(
+                blockchain_based_operations.len() + project_based_operations.len(),
+            );
+            operations.extend(blockchain_based_operations);
+            operations.extend(project_based_operations);
+            operations
+        } else {
+            blockchain_based_operations
+        };
 
         // Apply operations
-
-        // TODO: Reduce operations count using files diff built from ipnft_change.changed_files
-
-        let project_dataset_ids = get_project_dataset_ids(project);
-        let operations = build_operations(
-            project_dataset_ids,
-            &current_owners_did_pkhs,
-            &holders_did_pkhs,
-            &revoke_access_accounts_did_pkh,
-        );
-
         self.kamu_node_api_client
             .apply_account_dataset_relations(operations)
             .await?;
@@ -971,31 +1034,11 @@ impl App {
         };
 
         // Prepare account information
-        let mut current_owners = HashSet::new();
-        let mut holders = HashSet::new();
-        let mut revoke_access_accounts = HashSet::new();
-
-        // TODO: self.get_owners() in parallel for all possible multisig?
-        if let Some(current_owner) = &ipnft_state.ipnft.current_owner {
-            let (owners, _) = self.get_owners(*current_owner).await?;
-            current_owners.extend(owners);
-        }
-        if let Some(former_owner) = &ipnft_state.ipnft.former_owner {
-            let (owners, _) = self.get_owners(*former_owner).await?;
-            revoke_access_accounts.extend(owners);
-        }
-
-        if let Some(token) = &ipnft_state.token {
-            for (holder, balance) in &token.holder_balances {
-                if *balance > IPT_ACCESS_THRESHOLD {
-                    holders.insert(*holder);
-                } else {
-                    revoke_access_accounts.insert(*holder);
-                }
-            }
-        }
-
-        account_access_sanity_checks(&current_owners, &mut holders, &mut revoke_access_accounts);
+        let GetAccountsByIpnftStateResponse {
+            current_owners,
+            holders,
+            revoke_access_accounts,
+        } = self.get_accounts_by_ipnft_state(&ipnft_state).await?;
 
         // Create accounts
         let CreateAccountsResponse {
@@ -1080,6 +1123,43 @@ impl App {
             revoke_access_accounts_did_pkh,
         })
     }
+
+    async fn get_accounts_by_ipnft_state(
+        &self,
+        ipnft_state: &IpnftState,
+    ) -> eyre::Result<GetAccountsByIpnftStateResponse> {
+        let mut current_owners = HashSet::new();
+        let mut holders = HashSet::new();
+        let mut revoke_access_accounts = HashSet::new();
+
+        // TODO: self.get_owners() in parallel for all possible multisig?
+        if let Some(current_owner) = &ipnft_state.ipnft.current_owner {
+            let (owners, _) = self.get_owners(*current_owner).await?;
+            current_owners.extend(owners);
+        }
+        if let Some(former_owner) = &ipnft_state.ipnft.former_owner {
+            let (owners, _) = self.get_owners(*former_owner).await?;
+            revoke_access_accounts.extend(owners);
+        }
+
+        if let Some(token) = &ipnft_state.token {
+            for (holder, balance) in &token.holder_balances {
+                if *balance > IPT_ACCESS_THRESHOLD {
+                    holders.insert(*holder);
+                } else {
+                    revoke_access_accounts.insert(*holder);
+                }
+            }
+        }
+
+        account_access_sanity_checks(&current_owners, &mut holders, &mut revoke_access_accounts);
+
+        Ok(GetAccountsByIpnftStateResponse {
+            current_owners,
+            holders,
+            revoke_access_accounts,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -1140,6 +1220,7 @@ struct CreateAccountsResponse {
     revoke_access_accounts_did_pkh: Vec<DidPhk>,
 }
 
+#[derive(Debug, Default)]
 struct ProjectDatasetIds<'a> {
     core_file_dataset_ids: Vec<&'a DatasetID>,
     owner_file_dataset_ids: Vec<&'a DatasetID>,
@@ -1173,6 +1254,12 @@ fn build_added_file_entries_with_molecule_access_level_map(
             ))
         })
         .collect()
+}
+
+struct GetAccountsByIpnftStateResponse {
+    current_owners: HashSet<Address>,
+    holders: HashSet<Address>,
+    revoke_access_accounts: HashSet<Address>,
 }
 
 fn prepare_changes_based_on_changed_versioned_files_entries(
@@ -1254,21 +1341,35 @@ fn account_access_sanity_checks(
     }
 }
 
+fn partition_dataset_id_by_molecule_access_level<'a>(
+    dataset_id: &'a DatasetID,
+    molecule_access_level: MoleculeAccessLevel,
+    owner_file_dataset_ids: &mut Vec<&'a DatasetID>,
+    holder_file_dataset_ids: &mut Vec<&'a DatasetID>,
+) {
+    use MoleculeAccessLevel as Access;
+
+    match molecule_access_level {
+        Access::Public | Access::Holder => {
+            holder_file_dataset_ids.push(dataset_id);
+        }
+        Access::Admin | Access::Admin2 => {
+            owner_file_dataset_ids.push(dataset_id);
+        }
+    }
+}
+
 fn get_project_dataset_ids(project: &ProjectProjection) -> ProjectDatasetIds<'_> {
     let mut owner_file_dataset_ids = Vec::new();
     let mut holder_file_dataset_ids = Vec::new();
 
     for (dataset_id, entry_with_access_level) in &project.actual_files_map {
-        use MoleculeAccessLevel as Access;
-
-        match entry_with_access_level.molecule_access_level {
-            Access::Public | Access::Holder => {
-                holder_file_dataset_ids.push(dataset_id);
-            }
-            Access::Admin | Access::Admin2 => {
-                owner_file_dataset_ids.push(dataset_id);
-            }
-        }
+        partition_dataset_id_by_molecule_access_level(
+            dataset_id,
+            entry_with_access_level.molecule_access_level,
+            &mut owner_file_dataset_ids,
+            &mut holder_file_dataset_ids,
+        );
     }
 
     let mut removed_file_dataset_ids = Vec::new();
