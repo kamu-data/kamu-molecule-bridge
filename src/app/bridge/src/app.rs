@@ -1254,7 +1254,7 @@ fn account_access_sanity_checks(
     }
 }
 
-fn get_project_dataset_ids(project: &ProjectProjection) -> ProjectDatasetIds {
+fn get_project_dataset_ids(project: &ProjectProjection) -> ProjectDatasetIds<'_> {
     let mut owner_file_dataset_ids = Vec::new();
     let mut holder_file_dataset_ids = Vec::new();
 
