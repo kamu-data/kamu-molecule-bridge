@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, U512};
 use color_eyre::eyre;
 use color_eyre::eyre::{Context, bail};
 use serde::{Serialize, Serializer};
@@ -9,7 +9,7 @@ use serde::{Serialize, Serializer};
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 pub struct IpnftUid {
     pub ipnft_address: Address,
-    pub token_id: U256,
+    pub token_id: U512,
 }
 
 impl Display for IpnftUid {
@@ -41,7 +41,7 @@ impl FromStr for IpnftUid {
 
         let ipnft_address = Address::from_str(raw_address)
             .wrap_err_with(|| format!("Address parse error: '{raw_address}'"))?;
-        let token_id = U256::from_str(raw_token_id)
+        let token_id = U512::from_str(raw_token_id)
             .wrap_err_with(|| format!("Token ID parse error: '{raw_token_id}'"))?;
 
         Ok(IpnftUid {

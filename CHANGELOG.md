@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [Unreleased]
+### Fixed
+- TokenID: large value correctly parse
+
 ## [0.2.1] - 2025-07-23
 ### Fixed
 - Config: `molecule_projects_loading_interval_in_secs`: removed extra prefix.

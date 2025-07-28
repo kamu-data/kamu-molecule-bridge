@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, U256, U512};
 use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
 use async_trait::async_trait;
@@ -396,7 +396,7 @@ impl App {
                                 let event = IPNFT::IPNFTMinted::decode_log(&log.inner)?;
                                 let ipnft_uid = IpnftUid {
                                     ipnft_address: event.address,
-                                    token_id: event.tokenId,
+                                    token_id: U512::from(event.tokenId),
                                 };
 
                                 ipnft_events.push(IpnftEvent::Minted(IpnftEventMinted {
@@ -409,7 +409,7 @@ impl App {
                                 let event = IPNFT::Transfer::decode_log(&log.inner)?;
                                 let ipnft_uid = IpnftUid {
                                     ipnft_address: event.address,
-                                    token_id: event.tokenId,
+                                    token_id: U512::from(event.tokenId),
                                 };
 
                                 match (event.from, event.to) {
@@ -562,7 +562,7 @@ impl App {
                             .ipnft_state_map
                             .iter_mut()
                             .find(|(ipnft_uid, ipnft_state)| {
-                                ipnft_uid.token_id == token_id
+                                ipnft_uid.token_id == U512::from(token_id)
                                     && ipnft_state.ipnft.symbol.as_ref() == Some(&symbol)
                             });
 
