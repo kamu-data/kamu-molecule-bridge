@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.3.0] - 2025-07-30
+### Added
+- New `ignore_projects_ipnft_uids` config option that allows us to exclude certain projects from synchronization.
+
 ## [0.2.1] - 2025-07-23
 ### Fixed
 - Config: `molecule_projects_loading_interval_in_secs`: removed extra prefix.
