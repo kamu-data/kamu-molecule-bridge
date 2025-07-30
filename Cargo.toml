@@ -15,6 +15,19 @@ members = [
 resolver = "3"
 
 
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
+repository = "https://github.com/kamu-data/kamu-molecule-bridge"
+authors = ["Kamu Data Inc. <dev@kamu.dev>"]
+readme = "README.md"
+license-file = "LICENSE.txt"
+keywords = ["blockchain"]
+include = ["src/**/*.rs", "Cargo.toml"]
+publish = false
+
+
 [workspace.dependencies]
 # App
 bridge = { path = "src/app/bridge", default-features = false }
@@ -46,7 +59,10 @@ axum = { version = "0.8", default-features = false, features = [
 # TODO: use eyre and color-eyre only in app crate
 # TODO: remove extra features
 #       https://github.com/eyre-rs/eyre/tree/master/color-eyre
-chrono = { version = "0.4", default-features = false, features = ["now", "serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "now",
+    "serde",
+] }
 color-eyre = { version = "0.6" }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.13", default-features = false }
@@ -75,19 +91,6 @@ tokio = { version = "1", default-features = false, features = [
     "signal",
 ] }
 tower = { version = "0.5", default-features = false }
-
-
-[workspace.package]
-version = "0.2.1"
-edition = "2024"
-homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
-repository = "https://github.com/kamu-data/kamu-molecule-bridge"
-authors = ["Kamu Data Inc. <dev@kamu.dev>"]
-readme = "README.md"
-license-file = "LICENSE.txt"
-keywords = ["blockchain"]
-include = ["src/**/*.rs", "Cargo.toml"]
-publish = false
 
 
 [workspace.lints.clippy]
