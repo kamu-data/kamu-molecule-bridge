@@ -18,13 +18,17 @@ pub struct Cli {
     pub config: PathBuf,
 
     #[command(subcommand)]
-    command: Command,
+    pub command: Command,
 }
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
     Run(RunArgs),
+    State(StateArgs),
 }
 
 #[derive(Debug, clap::Args)]
 pub struct RunArgs {}
+
+#[derive(Debug, clap::Args)]
+pub struct StateArgs {}

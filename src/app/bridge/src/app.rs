@@ -29,6 +29,8 @@ const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
 pub struct App {
     config: Config,
+    ignore_projects_ipnft_uids: std::collections::HashSet<String>,
+
     rpc_client: DynProvider,
     multisig_resolver: Arc<dyn MultisigResolver>,
     kamu_node_api_client: Arc<dyn KamuNodeApiClient>,
@@ -41,8 +43,8 @@ pub struct App {
 }
 
 #[derive(Debug, Default, Serialize)]
-struct AppState {
-    projects_dataset_offset: u64,
+pub struct AppState {
+    projects_dataset_offset: Option<u64>,
 
     ipnft_state_map: HashMap<IpnftUid, IpnftState>,
     ipnft_and_tokenizer_latest_indexed_block_number: u64,
@@ -122,8 +124,14 @@ impl App {
         metrics: BridgeMetrics,
         metrics_registry: prometheus::Registry,
     ) -> Self {
+        let ignore_projects_ipnft_uids = config
+            .ignore_projects_ipnft_uids
+            .clone()
+            .unwrap_or_default();
+
         Self {
             config,
+            ignore_projects_ipnft_uids,
             rpc_client,
             multisig_resolver,
             kamu_node_api_client,
@@ -133,6 +141,12 @@ impl App {
         }
     }
 
+    /// Loads the state and returns it without making any modifications to permissions
+    pub async fn get_state(mut self) -> eyre::Result<AppState> {
+        self.init_state().await
+    }
+
+    /// Initializes the state and enters continuous indexing loop
     pub async fn run<F>(&mut self, shutdown_requested: F) -> eyre::Result<()>
     where
         F: Future<Output = ()> + Send + 'static,
@@ -189,21 +203,7 @@ impl App {
     }
 
     async fn init(&mut self) -> eyre::Result<()> {
-        let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
-        let minimal_ipnft_or_tokenizer_birth_block_minus_one = self
-            .config
-            .ipnft_contract_birth_block
-            .min(self.config.tokenizer_contract_birth_block)
-            - 1;
-        let mut initial_app_state = AppState {
-            ipnft_and_tokenizer_latest_indexed_block_number:
-                minimal_ipnft_or_tokenizer_birth_block_minus_one,
-            ..Default::default()
-        };
-
-        self.indexing(&mut initial_app_state, latest_finalized_block_number)
-            .await?;
-        self.load_molecule_projects(&mut initial_app_state).await?;
+        let mut initial_app_state = self.init_state().await?;
 
         // TODO: index multisig for allowlisted IPNFT
         self.initial_access_applying(&mut initial_app_state).await?;
@@ -214,6 +214,30 @@ impl App {
         }
 
         Ok(())
+    }
+
+    #[tracing::instrument(level = "info", skip_all)]
+    async fn init_state(&mut self) -> eyre::Result<AppState> {
+        let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
+
+        let minimal_ipnft_or_tokenizer_birth_block_minus_one = self
+            .config
+            .ipnft_contract_birth_block
+            .min(self.config.tokenizer_contract_birth_block)
+            - 1;
+
+        let mut initial_app_state = AppState {
+            ipnft_and_tokenizer_latest_indexed_block_number:
+                minimal_ipnft_or_tokenizer_birth_block_minus_one,
+            ..Default::default()
+        };
+
+        self.indexing(&mut initial_app_state, latest_finalized_block_number)
+            .await?;
+
+        self.load_molecule_projects(&mut initial_app_state).await?;
+
+        Ok(initial_app_state)
     }
 
     async fn update(&mut self) -> eyre::Result<()> {
@@ -691,7 +715,13 @@ impl App {
         // Second, check for new allowlisted projects.
         let new_projects_entries = self
             .kamu_node_api_client
-            .get_molecule_project_entries(app_state.projects_dataset_offset + 1) // NOTE: only new allowlisted projects
+            .get_molecule_project_entries(
+                app_state
+                    .projects_dataset_offset
+                    .map(|off| off + 1)
+                    .unwrap_or(0),
+                &self.ignore_projects_ipnft_uids,
+            ) // NOTE: only new allowlisted projects
             .await?;
         let new_data_room_dataset_ids_with_offsets = new_projects_entries
             .iter()
@@ -815,7 +845,7 @@ impl App {
             )
             .entered();
 
-            new_projects_dataset_offset = project_entry.offset;
+            new_projects_dataset_offset = Some(project_entry.offset);
 
             let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
             else {

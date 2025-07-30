@@ -105,6 +105,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn get_molecule_project_entries(
         &self,
         offset: u64,
+        ignore_ipnft_uids: &std::collections::HashSet<String>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
@@ -123,7 +124,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             "#
         );
 
-        let dtos = self.sql_query::<Vec<MoleculeProjectEntryDto>>(sql).await?;
+        let mut dtos = self.sql_query::<Vec<MoleculeProjectEntryDto>>(sql).await?;
+
+        dtos.retain(|p| !ignore_ipnft_uids.contains(&p.ipnft_uid));
+
         let project_entries = dtos
             .into_iter()
             .map(TryInto::try_into)

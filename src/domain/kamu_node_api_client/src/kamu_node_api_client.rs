@@ -13,6 +13,7 @@ pub trait KamuNodeApiClient {
     async fn get_molecule_project_entries(
         &self,
         offset: u64,
+        ignore_ipnft_uids: &std::collections::HashSet<String>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>>;
 
     async fn get_versioned_files_entries_by_data_rooms(

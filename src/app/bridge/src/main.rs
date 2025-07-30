@@ -4,7 +4,7 @@ use alloy::providers::fillers::ChainIdFiller;
 use alloy::providers::{DynProvider, Provider};
 use clap::Parser as _;
 use color_eyre::eyre;
-use kamu_molecule_bridge::cli::Cli;
+use kamu_molecule_bridge::cli;
 use kamu_molecule_bridge::metrics::BridgeMetrics;
 use kamu_molecule_bridge::prelude::*;
 use kamu_node_api_client::KamuNodeApiClientImpl;
@@ -23,7 +23,7 @@ fn main() -> eyre::Result<()> {
     // differentiate .env file's ansence from other errors
     dotenv::dotenv().ok();
 
-    let args = Cli::parse();
+    let args = cli::Cli::parse();
 
     init_tls();
 
@@ -40,7 +40,7 @@ fn main() -> eyre::Result<()> {
 }
 
 // The job of main_async() is to initialize observability and redirect unhandled errors to tracing
-async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
+async fn main_async(config: Config, args: cli::Cli) -> eyre::Result<()> {
     let observability = init_observability();
 
     match main_app(config, args).await {
@@ -60,7 +60,7 @@ async fn main_async(config: Config, args: Cli) -> eyre::Result<()> {
     }
 }
 
-async fn main_app(config: Config, args: Cli) -> eyre::Result<()> {
+async fn main_app(config: Config, args: cli::Cli) -> eyre::Result<()> {
     let (metrics_registry, metrics) = init_metrics(&config)?;
 
     let rpc_client = build_rpc_client(&config, &metrics).await?;
@@ -74,8 +74,6 @@ async fn main_app(config: Config, args: Cli) -> eyre::Result<()> {
 
     tracing::info!(version = VERSION, ?config, ?args, "Running {BINARY_NAME}");
 
-    let shutdown_requested = trap_signals();
-
     let mut app = App::new(
         config,
         rpc_client,
@@ -85,7 +83,17 @@ async fn main_app(config: Config, args: Cli) -> eyre::Result<()> {
         metrics_registry,
     );
 
-    app.run(shutdown_requested).await
+    match args.command {
+        cli::Command::Run(cli::RunArgs {}) => {
+            let shutdown_requested = trap_signals();
+            app.run(shutdown_requested).await
+        }
+        cli::Command::State(cli::StateArgs {}) => {
+            let state = app.get_state().await?;
+            serde_json::to_writer(std::io::stdout(), &state)?;
+            Ok(())
+        }
+    }
 }
 
 async fn build_rpc_client(config: &Config, metrics: &BridgeMetrics) -> eyre::Result<DynProvider> {
