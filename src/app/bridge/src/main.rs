@@ -20,15 +20,14 @@ fn main() -> eyre::Result<()> {
     init_error_reporting()?;
 
     // FIXME: Not handling errors due to poor API that doesn't allow to easily
-    // differentiate .env file's ansence from other errors
+    // differentiate .env file's absence from other errors
     dotenv::dotenv().ok();
 
     let args = cli::Cli::parse();
 
     init_tls();
 
-    // Loads configuration from env and config file
-    // Config file is optional.
+    // Loads configuration from env and optional config file.
     // Environment variables take precedence over the config.
     let config = Config::builder().env().file(&args.config).load()?;
 
