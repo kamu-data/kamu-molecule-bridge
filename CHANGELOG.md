@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.4.0] - 2025-08-01
+### Changed
+- (#25) Stabilizing block interval indexing when they contain many events.
+
 ## [0.3.0] - 2025-07-30
 ### Added
 - New `ignore_projects_ipnft_uids` config option that allows us to exclude certain projects from synchronization.
