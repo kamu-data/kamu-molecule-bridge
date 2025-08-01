@@ -2,11 +2,11 @@ use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::{Filter, Log};
-use alloy::transports::{RpcError, TransportErrorKind};
+use alloy::transports::{RpcError, TransportError, TransportErrorKind, TransportResult};
 use async_trait::async_trait;
-use color_eyre::eyre;
-use color_eyre::eyre::{ContextCompat, bail};
+use color_eyre::eyre::{self, ContextCompat, bail, eyre};
 use std::collections::HashSet;
+use std::future::Future;
 use std::time::Duration;
 
 pub struct LogsChunk {
@@ -58,14 +58,13 @@ impl ProviderExt for DynProvider {
         const MAX_ADDRESSES_PER_RPC_REQUEST: usize = 25;
 
         for address_window in addresses.chunks(MAX_ADDRESSES_PER_RPC_REQUEST) {
-            binary_search_logs(
+            binary_get_logs(
                 self,
                 address_window.to_vec(),
                 event_signatures.clone(),
                 from_block,
                 to_block,
                 callback,
-                0,
             )
             .await?;
         }
@@ -74,11 +73,11 @@ impl ProviderExt for DynProvider {
     }
 
     async fn latest_finalized_block_number(&self) -> eyre::Result<u64> {
-        // TODO: retry logic
-        let block = self
-            .get_block_by_number(BlockNumberOrTag::Finalized)
-            .await?
-            .context("Latest finalized block is missed")?;
+        let block = with_retry("latest_finalized_block_number", || async {
+            self.get_block_by_number(BlockNumberOrTag::Finalized).await
+        })
+        .await?
+        .context("Latest finalized block is missed")?;
 
         Ok(block.header.number)
     }
@@ -93,17 +92,15 @@ impl ProviderExt for DynProvider {
         from = from_block,
         to = to_block,
         diff = to_block.checked_sub(from_block),
-        retry_count = retry_count,
     )
 )]
-async fn binary_search_logs<F>(
+async fn binary_get_logs<F>(
     provider: &DynProvider,
     addresses: Vec<Address>,
     event_signatures: HashSet<B256>,
     from_block: u64,
     to_block: u64,
     callback: &mut F,
-    retry_count: u32,
 ) -> eyre::Result<()>
 where
     F: FnMut(LogsChunk) -> eyre::Result<()> + Send + Sync,
@@ -112,13 +109,7 @@ where
     debug_assert!(!addresses.is_empty());
     debug_assert!(!event_signatures.is_empty());
 
-    const MAX_RETRY_COUNT: u32 = 3;
-    const DELAY_BETWEEN_RETRIES_STEP: Duration = Duration::from_secs(1);
     const MIN_BLOCK_RANGE: u64 = 1;
-
-    if retry_count >= MAX_RETRY_COUNT {
-        bail!("Too many retries for block range [{from_block}, {to_block}]");
-    }
 
     let filter = Filter::new()
         .address(addresses.clone())
@@ -126,7 +117,12 @@ where
         .from_block(from_block)
         .to_block(to_block);
 
-    match provider.get_logs(&filter).await {
+    let result = with_retry(&format!("get_logs([{from_block}, {to_block}])"), || {
+        provider.get_logs(&filter)
+    })
+    .await;
+
+    match result {
         Ok(logs) => {
             callback(LogsChunk {
                 from_block,
@@ -136,11 +132,11 @@ where
 
             Ok(())
         }
-        Err(e) if is_too_many_events_error(&e) => {
+        Err(WithRetryError::Transport(e)) if is_too_many_events_error(&e) => {
             let current_range = to_block - from_block + 1;
 
             if current_range <= MIN_BLOCK_RANGE {
-                bail!("Cannot split block range [{from_block}, {to_block}] further: {e}",);
+                bail!("Cannot split block range [{from_block}, {to_block}] further: {e}");
             }
 
             tracing::warn!(
@@ -151,54 +147,73 @@ where
             let mid_block = from_block + (to_block - from_block) / 2;
 
             // Process first half
-            Box::pin(binary_search_logs(
+            Box::pin(binary_get_logs(
                 provider,
                 addresses.clone(),
                 event_signatures.clone(),
                 from_block,
                 mid_block,
                 callback,
-                0, // Reset retry count for new range
             ))
             .await?;
 
             // Process second half
-            Box::pin(binary_search_logs(
+            Box::pin(binary_get_logs(
                 provider,
                 addresses,
                 event_signatures,
                 mid_block + 1,
                 to_block,
                 callback,
-                0, // Reset retry count for new range
             ))
             .await?;
 
             Ok(())
         }
-        Err(RpcError::Transport(e)) if e.is_retry_err() => {
-            // Network error, retry with exponential backoff
-            let retry_delay = DELAY_BETWEEN_RETRIES_STEP * (retry_count + 1);
+        Err(unexpected_error) => Err(unexpected_error)?,
+    }
+}
 
-            tracing::debug!(
-                "Retryable error, waiting {retry_delay:?} before retry #{} for range [{from_block}, {to_block}]",
-                retry_count + 1,
-            );
+#[derive(thiserror::Error, Debug)]
+enum WithRetryError {
+    #[error("Transport error: {0:?}")]
+    Transport(#[from] TransportError),
 
-            tokio::time::sleep(retry_delay).await;
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
+}
 
-            Box::pin(binary_search_logs(
-                provider,
-                addresses,
-                event_signatures,
-                from_block,
-                to_block,
-                callback,
-                retry_count + 1,
-            ))
-            .await
+#[tracing::instrument(level = "debug", skip_all, fields(operation_name = %operation_name))]
+async fn with_retry<F, Fut, T>(operation_name: &str, operation: F) -> Result<T, WithRetryError>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = TransportResult<T>>,
+{
+    const MAX_RETRY_COUNT: u32 = 3;
+    const DELAY_BETWEEN_RETRIES_STEP: Duration = Duration::from_secs(1);
+
+    let mut retry_count = 0;
+
+    loop {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(RpcError::Transport(e)) if e.is_retry_err() => {
+                if retry_count >= MAX_RETRY_COUNT {
+                    return Err(eyre!("Too many retries after {retry_count} attempts").into());
+                }
+
+                let retry_delay = DELAY_BETWEEN_RETRIES_STEP * (retry_count + 1);
+
+                tracing::debug!(
+                    "Retryable error, waiting {retry_delay:?} before retry #{} ",
+                    retry_count + 1,
+                );
+
+                tokio::time::sleep(retry_delay).await;
+                retry_count += 1;
+            }
+            Err(e) => return Err(e.into()),
         }
-        Err(e) => Err(e.into()),
     }
 }
 
@@ -209,16 +224,28 @@ fn is_too_many_events_error(error: &RpcError<TransportErrorKind>) -> bool {
         _ => return false,
     };
 
-    #[expect(clippy::match_same_arms)]
-    match error.as_str() {
-        // Alchemy
-        "log response size exceeded" | "query timeout" => true,
-        // Infura
-        "query returned more than" | "request timed out" => true,
-        // QuickNode
-        "too many results" | "result window too large" => true,
-        // Generic
-        "too many events" | "exceeded maximum number of events" | "block range too large" => true,
-        _ => false,
+    // Alchemy
+    if error.contains("log response size exceeded") || error.contains("query timeout") {
+        return true;
     }
+
+    // Infura
+    if error.contains("query returned more than") || error.contains("request timed out") {
+        return true;
+    }
+
+    // QuickNode
+    if error.contains("too many results") || error.contains("result window too large") {
+        return true;
+    }
+
+    // Generic
+    if error.contains("too many events")
+        || error.contains("exceeded maximum number of events")
+        || error.contains("block range too large")
+    {
+        return true;
+    }
+
+    false
 }
