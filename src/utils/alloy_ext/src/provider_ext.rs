@@ -144,7 +144,7 @@ where
             );
 
             // Binary search: split the range in half
-            let mid_block = from_block + (to_block - from_block) / 2;
+            let middle_block = middle_block(from_block, to_block);
 
             // Process first half
             Box::pin(binary_get_logs(
@@ -152,7 +152,7 @@ where
                 addresses.clone(),
                 event_signatures.clone(),
                 from_block,
-                mid_block,
+                middle_block,
                 callback,
             ))
             .await?;
@@ -162,7 +162,7 @@ where
                 provider,
                 addresses,
                 event_signatures,
-                mid_block + 1,
+                middle_block + 1,
                 to_block,
                 callback,
             ))
@@ -248,4 +248,29 @@ fn is_too_many_events_error(error: &RpcError<TransportErrorKind>) -> bool {
     }
 
     false
+}
+
+fn middle_block(from_block: u64, to_block: u64) -> u64 {
+    debug_assert!(to_block >= from_block, "{to_block} >= {from_block}");
+
+    from_block + (to_block - from_block) / 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(0, 9, 4)]
+    #[case(0, 10, 5)]
+    #[case(1, 9, 5)]
+    #[case(1, 10, 5)]
+    #[case(10, 10, 10)]
+    #[case(10, 11, 10)]
+    #[case(10, 12, 11)]
+    fn test_middle_block(#[case] from_block: u64, #[case] to_block: u64, #[case] expected: u64) {
+        assert_eq!(expected, middle_block(from_block, to_block));
+    }
 }
