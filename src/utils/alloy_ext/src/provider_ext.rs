@@ -2,12 +2,10 @@ use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::{Filter, Log};
-use alloy::transports::{RpcError, TransportError, TransportErrorKind, TransportResult};
+use alloy::transports::{RpcError, TransportErrorKind};
 use async_trait::async_trait;
-use color_eyre::eyre::{self, ContextCompat, bail, eyre};
+use color_eyre::eyre::{self, ContextCompat, bail};
 use std::collections::HashSet;
-use std::future::Future;
-use std::time::Duration;
 
 pub struct LogsChunk {
     pub from_block: u64,
@@ -73,11 +71,10 @@ impl ProviderExt for DynProvider {
     }
 
     async fn latest_finalized_block_number(&self) -> eyre::Result<u64> {
-        let block = with_retry("latest_finalized_block_number", || async {
-            self.get_block_by_number(BlockNumberOrTag::Finalized).await
-        })
-        .await?
-        .context("Latest finalized block is missed")?;
+        let block = self
+            .get_block_by_number(BlockNumberOrTag::Finalized)
+            .await?
+            .context("Latest finalized block is missed")?;
 
         Ok(block.header.number)
     }
@@ -117,10 +114,7 @@ where
         .from_block(from_block)
         .to_block(to_block);
 
-    let result = with_retry(&format!("get_logs([{from_block}, {to_block}])"), || {
-        provider.get_logs(&filter)
-    })
-    .await;
+    let result = provider.get_logs(&filter).await;
 
     match result {
         Ok(logs) => {
@@ -132,7 +126,7 @@ where
 
             Ok(())
         }
-        Err(WithRetryError::Transport(e)) if is_too_many_events_error(&e) => {
+        Err(e) if is_too_many_events_error(&e) => {
             let current_range = to_block - from_block + 1;
 
             if current_range <= MIN_BLOCK_RANGE {
@@ -140,7 +134,7 @@ where
             }
 
             tracing::warn!(
-                "Too many events error for range [{from_block}, {to_block}], splitting in half",
+                "Too many events for range [{from_block}, {to_block}], splitting in half",
             );
 
             // Binary search: split the range in half
@@ -174,49 +168,6 @@ where
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-enum WithRetryError {
-    #[error("Transport error: {0:?}")]
-    Transport(#[from] TransportError),
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
-
-#[tracing::instrument(level = "debug", skip_all, fields(operation_name = %operation_name))]
-async fn with_retry<F, Fut, T>(operation_name: &str, operation: F) -> Result<T, WithRetryError>
-where
-    F: Fn() -> Fut,
-    Fut: Future<Output = TransportResult<T>>,
-{
-    const MAX_RETRY_COUNT: u32 = 3;
-    const DELAY_BETWEEN_RETRIES_STEP: Duration = Duration::from_secs(1);
-
-    let mut retry_count = 0;
-
-    loop {
-        match operation().await {
-            Ok(result) => return Ok(result),
-            Err(RpcError::Transport(e)) if e.is_retry_err() => {
-                if retry_count >= MAX_RETRY_COUNT {
-                    return Err(eyre!("Too many retries after {retry_count} attempts").into());
-                }
-
-                let retry_delay = DELAY_BETWEEN_RETRIES_STEP * (retry_count + 1);
-
-                tracing::debug!(
-                    "Retryable error, waiting {retry_delay:?} before retry #{} ",
-                    retry_count + 1,
-                );
-
-                tokio::time::sleep(retry_delay).await;
-                retry_count += 1;
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-}
-
 fn is_too_many_events_error(error: &RpcError<TransportErrorKind>) -> bool {
     let error = match error {
         RpcError::ErrorResp(resp) => resp.message.to_lowercase(),
@@ -243,6 +194,7 @@ fn is_too_many_events_error(error: &RpcError<TransportErrorKind>) -> bool {
     if error.contains("too many events")
         || error.contains("exceeded maximum number of events")
         || error.contains("block range too large")
+        || error.contains("exceed maximum block range")
     {
         return true;
     }
