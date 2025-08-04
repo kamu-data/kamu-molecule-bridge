@@ -20,15 +20,14 @@ fn main() -> eyre::Result<()> {
     init_error_reporting()?;
 
     // FIXME: Not handling errors due to poor API that doesn't allow to easily
-    // differentiate .env file's ansence from other errors
+    // differentiate .env file's absence from other errors
     dotenv::dotenv().ok();
 
     let args = cli::Cli::parse();
 
     init_tls();
 
-    // Loads configuration from env and config file
-    // Config file is optional.
+    // Loads configuration from env and optional config file.
     // Environment variables take precedence over the config.
     let config = Config::builder().env().file(&args.config).load()?;
 
@@ -97,12 +96,24 @@ async fn main_app(config: Config, args: cli::Cli) -> eyre::Result<()> {
 }
 
 async fn build_rpc_client(config: &Config, metrics: &BridgeMetrics) -> eyre::Result<DynProvider> {
+    let retry_backoff_layer = {
+        let retry_count = 3;
+        let initial_backoff_ms = 1000;
+        let compute_units_per_second = 100;
+        alloy::transports::layers::RetryBackoffLayer::new(
+            retry_count,
+            initial_backoff_ms,
+            compute_units_per_second,
+        )
+    };
+
     let client = alloy::rpc::client::ClientBuilder::default()
         .layer(alloy_ext::metrics::MetricsLayer::new(
             metrics.evm_rpc_requests_num_total.clone(),
             metrics.evm_rpc_errors_num_total.clone(),
         ))
         .layer(alloy_ext::tracing::TracingLayer)
+        .layer(retry_backoff_layer)
         .connect(&config.rpc_url)
         .await?;
 
@@ -139,7 +150,7 @@ fn build_kamu_node_client(config: &Config, metrics: &BridgeMetrics) -> Arc<KamuN
 fn init_error_reporting() -> eyre::Result<()> {
     use observability::config::Mode;
 
-    // Use blank theme when in service mode to avoid ANSII colors in tracing
+    // Use blank theme when in service mode to avoid ANSI colors in tracing
     let theme = match observability::init::auto_detect_mode() {
         Mode::Dev => color_eyre::config::Theme::dark(),
         Mode::Service => color_eyre::config::Theme::new(),
