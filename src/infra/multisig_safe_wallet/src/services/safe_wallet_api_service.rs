@@ -10,18 +10,12 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-#[derive(Default)]
-struct State {
-    cache_multisig_address_owners_mapping: HashMap<Address, Option<HashSet<Address>>>,
-}
-
 /// Safe Wallet Service for interacting with Safe Transaction Service API
 #[derive(Clone)]
 pub struct SafeWalletApiService {
     api_base_url: &'static str,
     http_client: Client,
     rpc_client: DynProvider,
-    state: Arc<RwLock<State>>,
 }
 
 impl SafeWalletApiService {
@@ -33,7 +27,6 @@ impl SafeWalletApiService {
             api_base_url,
             http_client,
             rpc_client,
-            state: Default::default(),
         })
     }
 
@@ -60,27 +53,13 @@ impl SafeWalletApiService {
 
 #[async_trait]
 impl MultisigResolver for SafeWalletApiService {
+    #[tracing::instrument(level = "debug", skip_all, fields(address = %address))]
     async fn get_multisig_owners(
         &self,
         address: Address,
     ) -> eyre::Result<Option<HashSet<Address>>> {
-        {
-            let readable_state = self.state.read().await;
-            if let Some(cached_result) = readable_state
-                .cache_multisig_address_owners_mapping
-                .get(&address)
-            {
-                return Ok(cached_result.clone());
-            }
-        }
-
         // Cheap call (blockchain)
         if !self.is_contract(address).await? {
-            let mut writable_state = self.state.write().await;
-            writable_state
-                .cache_multisig_address_owners_mapping
-                .insert(address, None);
-
             return Ok(None);
         }
 
@@ -95,11 +74,7 @@ impl MultisigResolver for SafeWalletApiService {
                 // Continue processing
             }
             StatusCode::NOT_FOUND => {
-                let mut writable_state = self.state.write().await;
-                writable_state
-                    .cache_multisig_address_owners_mapping
-                    .insert(address, None);
-
+                tracing::warn!("Not safe multisig: {address}");
                 return Ok(None);
             }
             unexpected => bail!("Unexpected status code: {unexpected}"),
@@ -116,12 +91,6 @@ impl MultisigResolver for SafeWalletApiService {
         assert_eq!(address, response.address);
 
         let owners = response.owners.into_iter().collect::<HashSet<_>>();
-
-        let mut writable_state = self.state.write().await;
-        writable_state
-            .cache_multisig_address_owners_mapping
-            .insert(address, Some(owners.clone()));
-
         Ok(Some(owners))
     }
 }
