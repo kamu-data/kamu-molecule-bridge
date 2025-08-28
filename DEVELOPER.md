@@ -18,7 +18,13 @@ To achieve this, you will need the following commands:
 forge inspect src/IPNFT.sol abi --json > IPNFT.json
 forge inspect src/IPToken.sol abi --json > IPToken.json
 forge inspect src/Tokenizer.sol abi --json > Tokenizer.json
-forge inspect lib/safe-contracts/contracts/Safe.sol abi --json > Safe.jso
+
+# cd safe-contracts repo (https://github.com/safe-global/safe-smart-account)
+git checkout release/v1.3.0
+forge inspect ./contracts/GnosisSafe.sol abi --json > Safe_1.3.0.json # not indexed events
+
+git checkout release/v1.5.0
+forge inspect ./contracts/Safe.sol abi --json > Safe_1.5.0.json # indexed events
 ```
 
 After a successful generation, update the changed contracts' ABI in this repository. 

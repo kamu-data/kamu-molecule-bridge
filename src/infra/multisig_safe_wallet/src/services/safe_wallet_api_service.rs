@@ -1,5 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashSet;
 
 use alloy::primitives::Address;
 use alloy::providers::{DynProvider, Provider};
@@ -8,7 +7,6 @@ use color_eyre::eyre::{self, bail};
 use multisig::services::MultisigResolver;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
 /// Safe Wallet Service for interacting with Safe Transaction Service API
 #[derive(Clone)]

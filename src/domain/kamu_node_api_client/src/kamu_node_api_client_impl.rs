@@ -105,7 +105,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn get_molecule_project_entries(
         &self,
         offset: u64,
-        ignore_ipnft_uids: &std::collections::HashSet<String>,
+        ignore_ipnft_uids: &HashSet<String>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
