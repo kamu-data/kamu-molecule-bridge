@@ -13,6 +13,8 @@ Recommendation: for ease of reading, use the following order:
 -->
 
 ## [0.5.0] - 2025-08-28
+### Added
+- `kamu-molecule-bridge run --dry-run`: Mode in which Bridge does not make any changes to Kamu Node.
 ### Changed
 - (#29) Multisig indexing improvements.
 
