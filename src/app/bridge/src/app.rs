@@ -1,7 +1,8 @@
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Log, U256};
 use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
 use async_trait::async_trait;
@@ -10,7 +11,7 @@ use color_eyre::eyre;
 use color_eyre::eyre::{ContextCompat, bail};
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
-use molecule_contracts::{IPNFT, IPToken, Synthesizer, Tokenizer};
+use molecule_contracts::{IPNFT, IPToken, Safe, Synthesizer, Tokenizer, safe};
 use molecule_ipnft::entities::*;
 use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
@@ -29,7 +30,7 @@ const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
 pub struct App {
     config: Config,
-    ignore_projects_ipnft_uids: std::collections::HashSet<String>,
+    ignore_projects_ipnft_uids: HashSet<String>,
 
     rpc_client: DynProvider,
     multisig_resolver: Arc<dyn MultisigResolver>,
@@ -47,13 +48,13 @@ pub struct AppState {
     projects_dataset_offset: Option<u64>,
 
     ipnft_state_map: HashMap<IpnftUid, IpnftState>,
-    ipnft_and_tokenizer_latest_indexed_block_number: u64,
+    latest_indexed_block_number: u64,
 
     token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
     tokens_latest_indexed_block_number: u64,
 
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
-
+    multisig: HashMap<Address, Option<MultisigState>>,
     access_changes: HashMap<DateTime<Utc>, AccessChanges>,
 }
 
@@ -76,6 +77,12 @@ struct IpnftState {
     ipnft: IpnftEventProjection,
     project: Option<ProjectProjection>,
     token: Option<TokenProjection>,
+}
+
+#[derive(Debug, Serialize)]
+struct MultisigState {
+    current_owners: HashSet<Address>,
+    former_owners: HashSet<Address>,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,7 +153,7 @@ impl App {
         self.init_state().await
     }
 
-    /// Initializes the state and enters continuous indexing loop
+    /// Initializes the state and enters a continuous indexing loop
     pub async fn run<F>(&mut self, shutdown_requested: F) -> eyre::Result<()>
     where
         F: Future<Output = ()> + Send + 'static,
@@ -205,7 +212,6 @@ impl App {
     async fn init(&mut self) -> eyre::Result<()> {
         let mut initial_app_state = self.init_state().await?;
 
-        // TODO: index multisig for allowlisted IPNFT
         self.initial_access_applying(&mut initial_app_state).await?;
 
         {
@@ -227,8 +233,7 @@ impl App {
             - 1;
 
         let mut initial_app_state = AppState {
-            ipnft_and_tokenizer_latest_indexed_block_number:
-                minimal_ipnft_or_tokenizer_birth_block_minus_one,
+            latest_indexed_block_number: minimal_ipnft_or_tokenizer_birth_block_minus_one,
             ..Default::default()
         };
 
@@ -247,8 +252,7 @@ impl App {
 
         let mut writable_state = self.state.clone().write_owned().await;
 
-        let next_block_for_indexing =
-            writable_state.ipnft_and_tokenizer_latest_indexed_block_number + 1;
+        let next_block_for_indexing = writable_state.latest_indexed_block_number + 1;
         if latest_finalized_block_number <= next_block_for_indexing {
             tracing::info!(
                 "Skip update iteration as there are no new blocks to index: {latest_finalized_block_number} <= {next_block_for_indexing}"
@@ -282,8 +286,12 @@ impl App {
             writable_state.molecule_projects_last_requested_at = Some(Utc::now());
         }
 
-        self.interval_access_applying(&mut writable_state, ipnft_changes_map)
-            .await?;
+        self.interval_access_applying(
+            &mut writable_state,
+            ipnft_changes_map,
+            next_block_for_indexing,
+        )
+        .await?;
 
         Ok(())
     }
@@ -299,7 +307,7 @@ impl App {
             tokenizer_events,
         } = self
             .index_ipnft_and_tokenizer_contracts(
-                app_state.ipnft_and_tokenizer_latest_indexed_block_number + 1,
+                app_state.latest_indexed_block_number + 1,
                 to_block,
             )
             .await?;
@@ -327,11 +335,21 @@ impl App {
             }
         }
 
+        let IndexMultisigSafesResponse {
+            changed_ipnft_multisig_owners,
+        } = self
+            .index_multisig_safes(
+                app_state,
+                app_state.latest_indexed_block_number + 1,
+                to_block,
+            )
+            .await?;
+
+        app_state.latest_indexed_block_number = to_block;
+
         let ProcessTokenizerEventsResponse {
             minimal_ipt_birth_block,
         } = self.process_tokenizer_events(app_state, tokenizer_events);
-
-        app_state.ipnft_and_tokenizer_latest_indexed_block_number = to_block;
 
         let from_block = if app_state.tokens_latest_indexed_block_number == 0 {
             minimal_ipt_birth_block
@@ -346,10 +364,10 @@ impl App {
         app_state.tokens_latest_indexed_block_number = to_block;
 
         // Populate IPNFT blockchain changes:
-        let mut ipnft_changes: HashMap<IpnftUid, IpnftChanges> = HashMap::new();
+        let mut ipnft_changes_map: HashMap<IpnftUid, IpnftChanges> = HashMap::new();
         // 1. From IPNFT contract
         for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
-            let ipnft_change = ipnft_changes.entry(ipnft_uid).or_default();
+            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
 
             if ipnft_event_projection.minted && ipnft_event_projection.burnt {
                 // NOTE: IPNFT was burned before we could give access to anyone.
@@ -364,7 +382,7 @@ impl App {
         }
         // 2. From IPToken contracts
         for (ipnft_uid, holders_balances_changes) in participating_holders_balances {
-            let ipnft_change = ipnft_changes.entry(ipnft_uid).or_default();
+            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
 
             if ipnft_change.minted_and_burnt {
                 continue;
@@ -372,10 +390,18 @@ impl App {
 
             ipnft_change.holder_balances_changes = holders_balances_changes;
         }
+        // 3. From multisig changes
+        for (ipnft_uid, owner) in changed_ipnft_multisig_owners {
+            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
 
-        Ok(IndexingResponse {
-            ipnft_changes_map: ipnft_changes,
-        })
+            // If the current owner changes, we will request new data from the multisig state if needed.
+            if ipnft_change.owner_changes.current_owner.is_none() {
+                // If there is no owner change, we need to trigger new permissions [re]grant in IPNFT.
+                ipnft_change.owner_changes.current_owner = Some(owner);
+            }
+        }
+
+        Ok(IndexingResponse { ipnft_changes_map })
     }
 
     #[tracing::instrument(
@@ -499,6 +525,89 @@ impl App {
         Ok(IndexIpnftAndTokenizerContractsResponse {
             ipnft_events,
             tokenizer_events,
+        })
+    }
+
+    #[tracing::instrument(
+        level = "info",
+        skip_all,
+        fields(
+            from_block = from_block,
+            to_block = to_block,
+            diff = to_block.checked_sub(from_block),
+        )
+    )]
+    async fn index_multisig_safes(
+        &self,
+        app_state: &mut AppState,
+        from_block: u64,
+        to_block: u64,
+    ) -> eyre::Result<IndexMultisigSafesResponse> {
+        let multisigs = app_state.multisig.keys().copied().collect::<Vec<_>>();
+
+        if multisigs.is_empty() {
+            return Ok(IndexMultisigSafesResponse::default());
+        }
+
+        let mut changed_multisigs = HashSet::new();
+
+        self.rpc_client
+            .get_logs_ext(
+                multisigs,
+                HashSet::from_iter([
+                    Safe::AddedOwner::SIGNATURE_HASH,
+                    Safe::RemovedOwner::SIGNATURE_HASH,
+                ]),
+                from_block,
+                to_block,
+                &mut |logs_chunk| {
+                    for log in logs_chunk.logs {
+                        let safe_address = log.address();
+
+                        let Some(maybe_multisig_state) = app_state.multisig.get_mut(&safe_address) else {
+                            unreachable!();
+                        };
+                        let Some(multisig_state) = maybe_multisig_state else {
+                            unreachable!();
+                        };
+
+                        changed_multisigs.insert(safe_address);
+
+                        match log.event_signature_hash() {
+                            Safe::AddedOwner::SIGNATURE_HASH => {
+                                let added_owner = parse_safe_added_owner_event(&log.inner)?;
+                                multisig_state.current_owners.insert(added_owner);
+                            }
+                            Safe::RemovedOwner::SIGNATURE_HASH => {
+                                let removed_owner = parse_safe_removed_owner_event(&log.inner)?;
+                                multisig_state.current_owners.remove(&removed_owner);
+                                multisig_state.former_owners.insert(removed_owner);
+                            }
+                            unknown_event_signature_hash => {
+                                bail!("Unknown Safe event signature hash: {unknown_event_signature_hash}")
+                            }
+                        }
+                    }
+
+                    Ok(())
+                },
+            )
+            .await?;
+
+        let changed_ipnft_multisig_owners = app_state.ipnft_state_map.iter().fold(
+            HashMap::new(),
+            |mut acc, (ipnft_uid, ipnft_state)| {
+                if let Some(owner) = ipnft_state.ipnft.current_owner
+                    && changed_multisigs.contains(&owner)
+                {
+                    acc.insert(*ipnft_uid, owner);
+                }
+                acc
+            },
+        );
+
+        Ok(IndexMultisigSafesResponse {
+            changed_ipnft_multisig_owners,
         })
     }
 
@@ -899,6 +1008,7 @@ impl App {
         &self,
         app_state: &mut AppState,
         ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+        to_block: u64,
     ) -> eyre::Result<()> {
         for (ipnft_uid, ipnft_change) in ipnft_changes_map {
             // NOTE: These are post-indexing updates, so all this data must be present.
@@ -907,7 +1017,13 @@ impl App {
             };
 
             let operations = self
-                .interval_access_applying_for_ipnft(ipnft_uid, ipnft_state, ipnft_change)
+                .interval_access_applying_for_ipnft(
+                    ipnft_uid,
+                    ipnft_state,
+                    ipnft_change,
+                    &mut app_state.multisig,
+                    to_block,
+                )
                 .await?;
 
             // Apply operations
@@ -938,6 +1054,8 @@ impl App {
         ipnft_uid: IpnftUid,
         ipnft_state: &IpnftState,
         ipnft_change: IpnftChanges,
+        multisig: &mut HashMap<Address, Option<MultisigState>>,
+        to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
         if ipnft_change.minted_and_burnt {
             // Nothing to do
@@ -959,12 +1077,20 @@ impl App {
 
             // TODO: self.get_owners() in parallel for all possible multisig?
             if let Some(current_owner) = ipnft_change.owner_changes.current_owner {
-                let (owners, _) = self.get_owners(current_owner).await?;
-                current_owners.extend(owners);
+                let GetOwnersResponse {
+                    current_owners: new_owners,
+                    former_owners,
+                } = self.get_owners(current_owner, multisig, to_block).await?;
+                current_owners.extend(new_owners);
+                revoke_access_accounts.extend(former_owners);
             }
             if let Some(former_owner) = ipnft_change.owner_changes.former_owner {
-                let (owners, _) = self.get_owners(former_owner).await?;
-                revoke_access_accounts.extend(owners);
+                let GetOwnersResponse {
+                    current_owners: old_owners,
+                    former_owners,
+                } = self.get_owners(former_owner, multisig, to_block).await?;
+                revoke_access_accounts.extend(old_owners);
+                revoke_access_accounts.extend(former_owners);
             }
 
             for (holder, balance) in ipnft_change.holder_balances_changes {
@@ -1019,7 +1145,9 @@ impl App {
                 current_owners,
                 holders,
                 revoke_access_accounts,
-            } = self.get_accounts_by_ipnft_state(ipnft_state).await?;
+            } = self
+                .get_accounts_by_ipnft_state(ipnft_state, multisig, to_block)
+                .await?;
             let CreateAccountsResponse {
                 current_owners_did_pkhs,
                 holders_did_pkhs,
@@ -1078,7 +1206,12 @@ impl App {
     async fn initial_access_applying(&self, app_state: &mut AppState) -> eyre::Result<()> {
         for (ipnft_uid, ipnft_state) in &app_state.ipnft_state_map {
             let operations = self
-                .initial_access_applying_for_ipnft(ipnft_uid, ipnft_state)
+                .initial_access_applying_for_ipnft(
+                    ipnft_uid,
+                    ipnft_state,
+                    &mut app_state.multisig,
+                    app_state.latest_indexed_block_number,
+                )
                 .await?;
 
             // Apply operations
@@ -1108,6 +1241,8 @@ impl App {
         &self,
         ipnft_uid: &IpnftUid,
         ipnft_state: &IpnftState,
+        multisig: &mut HashMap<Address, Option<MultisigState>>,
+        to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
         if ipnft_state.ipnft.burnt {
             tracing::info!("Skip burnt IPNFT");
@@ -1124,7 +1259,9 @@ impl App {
             current_owners,
             holders,
             revoke_access_accounts,
-        } = self.get_accounts_by_ipnft_state(ipnft_state).await?;
+        } = self
+            .get_accounts_by_ipnft_state(ipnft_state, multisig, to_block)
+            .await?;
 
         // Create accounts
         let CreateAccountsResponse {
@@ -1160,15 +1297,96 @@ impl App {
         Ok(operations)
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(address = %address))]
-    async fn get_owners(&self, address: Address) -> eyre::Result<(HashSet<Address>, bool)> {
-        // TODO: revoke access from former multisig owners
+    #[tracing::instrument(level = "debug", skip_all, fields(address = %address, to_block = %to_block))]
+    async fn get_owners(
+        &self,
+        address: Address,
+        multisig: &mut HashMap<Address, Option<MultisigState>>,
+        to_block: u64,
+    ) -> eyre::Result<GetOwnersResponse> {
+        let multisig_state_vacant_entry = match multisig.entry(address) {
+            Entry::Occupied(maybe_multisig_occupied_entry) => {
+                // Extract information about an already known address:
+                let res = maybe_multisig_occupied_entry
+                    .get()
+                    .as_ref()
+                    // 1) If a known multisig wallet
+                    .map(|multisig| GetOwnersResponse {
+                        current_owners: multisig.current_owners.clone(),
+                        former_owners: multisig.former_owners.clone(),
+                    })
+                    // 2) If a known regular wallet
+                    .unwrap_or_else(|| GetOwnersResponse {
+                        current_owners: HashSet::from([address]),
+                        former_owners: Default::default(),
+                    });
+                // Early return for readability
+                return Ok(res);
+            }
+            Entry::Vacant(multisig_state_vacant_entry) => multisig_state_vacant_entry,
+        };
 
-        let maybe_owners = self.multisig_resolver.get_multisig_owners(address).await?;
-        let multisig = maybe_owners.is_some();
-        let owners = maybe_owners.unwrap_or_else(|| HashSet::from([address]));
+        // Check if the address belongs to Safe Wallet
+        let Some(multisig_owners_from_api) =
+            self.multisig_resolver.get_multisig_owners(address).await?
+        else {
+            // Remember that it's not a multisig account ...
+            multisig_state_vacant_entry.insert(None);
+            // ... and early return for readability
+            return Ok(GetOwnersResponse {
+                current_owners: HashSet::from([address]),
+                former_owners: Default::default(),
+            });
+        };
 
-        Ok((owners, multisig))
+        // From SafeWalletApiService we can only get current owners, but we are also interested in former ones.
+        // Restore state up to the requested block (typically the last finalized block).
+
+        // Safe Wallet before v1.3.0 did not have the SafeSetup event that would allow using logs
+        // only to restore the full ownership history (https://github.com/safe-global/safe-smart-account/issues/233).
+        // Therefore, we use the current owners list from the API and the for former owners from the RemovedOwner event.
+
+        let mut new_multisig_state = MultisigState {
+            current_owners: multisig_owners_from_api,
+            former_owners: Default::default(),
+        };
+
+        self.rpc_client
+            .get_logs_ext(
+                vec![address],
+                HashSet::from_iter([Safe::RemovedOwner::SIGNATURE_HASH]),
+                0, // From the beginning
+                to_block,
+                &mut |logs_chunk| {
+                    for log in logs_chunk.logs {
+                        match log.event_signature_hash() {
+                            Safe::RemovedOwner::SIGNATURE_HASH => {
+                                let removed_owner = parse_safe_removed_owner_event(&log.inner)?;
+
+                                if !new_multisig_state.current_owners.contains(&removed_owner) {
+                                    new_multisig_state.former_owners.insert(removed_owner);
+                                }
+                            }
+                            unknown_event_signature_hash => {
+                                bail!("Unknown Safe event signature hash: {unknown_event_signature_hash}")
+                            }
+                        }
+                    }
+
+                    Ok(())
+                },
+            )
+            .await?;
+
+        let res = GetOwnersResponse {
+            current_owners: new_multisig_state.current_owners.clone(),
+            former_owners: new_multisig_state.former_owners.clone(),
+        };
+
+        // Remember multisig data for subsequent requests.
+        multisig_state_vacant_entry.insert(Some(new_multisig_state));
+
+        Ok(res)
     }
 
     fn create_did_phk(&self, address: Address) -> eyre::Result<DidPhk> {
@@ -1209,6 +1427,8 @@ impl App {
     async fn get_accounts_by_ipnft_state(
         &self,
         ipnft_state: &IpnftState,
+        multisig: &mut HashMap<Address, Option<MultisigState>>,
+        to_block: u64,
     ) -> eyre::Result<GetAccountsByIpnftStateResponse> {
         let mut current_owners = HashSet::new();
         let mut holders = HashSet::new();
@@ -1216,12 +1436,20 @@ impl App {
 
         // TODO: self.get_owners() in parallel for all possible multisig?
         if let Some(current_owner) = &ipnft_state.ipnft.current_owner {
-            let (owners, _) = self.get_owners(*current_owner).await?;
-            current_owners.extend(owners);
+            let GetOwnersResponse {
+                current_owners: new_owners,
+                former_owners,
+            } = self.get_owners(*current_owner, multisig, to_block).await?;
+            current_owners.extend(new_owners);
+            revoke_access_accounts.extend(former_owners);
         }
         if let Some(former_owner) = &ipnft_state.ipnft.former_owner {
-            let (owners, _) = self.get_owners(*former_owner).await?;
-            revoke_access_accounts.extend(owners);
+            let GetOwnersResponse {
+                current_owners: old_owners,
+                former_owners,
+            } = self.get_owners(*former_owner, multisig, to_block).await?;
+            revoke_access_accounts.extend(old_owners);
+            revoke_access_accounts.extend(former_owners);
         }
 
         if let Some(token) = &ipnft_state.token {
@@ -1268,6 +1496,11 @@ struct IndexIpnftAndTokenizerContractsResponse {
     tokenizer_events: Vec<TokenizerEvent>,
 }
 
+#[derive(Debug, Default)]
+struct IndexMultisigSafesResponse {
+    changed_ipnft_multisig_owners: HashMap<IpnftUid, Address>,
+}
+
 struct ProcessTokenizerEventsResponse {
     minimal_ipt_birth_block: u64,
 }
@@ -1293,6 +1526,12 @@ enum IpnftDataRoomFileChange {
         from: MoleculeAccessLevel,
         to: MoleculeAccessLevel,
     },
+}
+
+#[derive(Debug, Default)]
+struct GetOwnersResponse {
+    current_owners: HashSet<Address>,
+    former_owners: HashSet<Address>,
 }
 
 struct CreateAccountsResponse {
@@ -1570,4 +1809,33 @@ fn build_operations(
     }
 
     operations
+}
+
+fn parse_safe_added_owner_event(log: &Log) -> eyre::Result<Address> {
+    // NOTE: We can use the actual event signature hashes because
+    //       the indexed mark doesn't participate in hash calculation.
+
+    // First, try to parse the actual event signature (indexed "owner" field), ...
+    let added_owner = if let Ok(event) = Safe::AddedOwner::decode_log(log) {
+        event.owner
+    } else {
+        // Try to parse an old version event (w/o indexed mark) -- may be relevant for older Safe Wallet versions
+        let event = safe::v1_3_0::Safe::AddedOwner::decode_log(log)?;
+        event.owner
+    };
+
+    Ok(added_owner)
+}
+
+fn parse_safe_removed_owner_event(log: &Log) -> eyre::Result<Address> {
+    // First, try to parse the actual event signature (indexed "owner" field), ...
+    let removed_owner = if let Ok(event) = Safe::RemovedOwner::decode_log(log) {
+        event.owner
+    } else {
+        // Try to parse an old version event (w/o indexed mark) -- may be relevant for older Safe Wallet versions
+        let event = safe::v1_3_0::Safe::RemovedOwner::decode_log(log)?;
+        event.owner
+    };
+
+    Ok(removed_owner)
 }

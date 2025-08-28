@@ -25,9 +25,9 @@ default = []
 
 
 [dependencies]
-alloy = { workspace = true }
 multisig = { workspace = true }
 
+alloy = { workspace = true }
 async-trait = { workspace = true }
 color-eyre = { workspace = true }
 reqwest = { workspace = true }

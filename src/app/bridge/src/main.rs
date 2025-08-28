@@ -69,7 +69,7 @@ async fn main_app(config: Config, args: cli::Cli) -> eyre::Result<()> {
         rpc_client.clone(),
     )?);
 
-    let kamu_node_api_client = build_kamu_node_client(&config, &metrics);
+    let kamu_node_api_client = build_kamu_node_client(&config, &args, &metrics);
 
     tracing::info!(version = VERSION, ?config, ?args, "Running {BINARY_NAME}");
 
@@ -83,7 +83,7 @@ async fn main_app(config: Config, args: cli::Cli) -> eyre::Result<()> {
     );
 
     match args.command {
-        cli::Command::Run(cli::RunArgs {}) => {
+        cli::Command::Run(cli::RunArgs { .. }) => {
             let shutdown_requested = trap_signals();
             app.run(shutdown_requested).await
         }
@@ -137,13 +137,20 @@ async fn build_rpc_client(config: &Config, metrics: &BridgeMetrics) -> eyre::Res
     Ok(provider)
 }
 
-fn build_kamu_node_client(config: &Config, metrics: &BridgeMetrics) -> Arc<KamuNodeApiClientImpl> {
+fn build_kamu_node_client(
+    config: &Config,
+    args: &cli::Cli,
+    metrics: &BridgeMetrics,
+) -> Arc<KamuNodeApiClientImpl> {
+    let dry_run = matches!(args.command, cli::Command::Run(cli::RunArgs { dry_run }) if dry_run);
+
     Arc::new(KamuNodeApiClientImpl::new(
         config.kamu_node_gql_api_endpoint.clone(),
         config.kamu_node_token.clone(),
         config.molecule_projects_dataset_alias.clone(),
         metrics.kamu_gql_requests_num_total.clone(),
         metrics.kamu_gql_errors_num_total.clone(),
+        dry_run,
     ))
 }
 

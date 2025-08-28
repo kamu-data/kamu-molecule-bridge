@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "alloy_ext"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2650,7 +2650,7 @@ dependencies = [
 
 [[package]]
 name = "kamu-molecule-bridge"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "alloy_ext",
@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "kamu_node_api_client"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2895,14 +2895,14 @@ dependencies = [
 
 [[package]]
 name = "molecule_contracts"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
 ]
 
 [[package]]
 name = "molecule_ipnft"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "color-eyre",
@@ -2914,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "multisig"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "multisig_safe_wallet"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -4259,9 +4259,9 @@ dependencies = [
 
 [[package]]
 name = "slab"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
+checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
 
 [[package]]
 name = "smallvec"

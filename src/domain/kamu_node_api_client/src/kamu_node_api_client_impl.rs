@@ -24,6 +24,8 @@ pub struct KamuNodeApiClientImpl {
 
     metric_gql_requests_num_total: prometheus::IntCounter,
     metric_gql_errors_num_total: prometheus::IntCounter,
+
+    dry_run: bool,
 }
 
 impl KamuNodeApiClientImpl {
@@ -33,6 +35,7 @@ impl KamuNodeApiClientImpl {
         molecule_projects_dataset_alias: String,
         metric_gql_requests_num_total: prometheus::IntCounter,
         metric_gql_errors_num_total: prometheus::IntCounter,
+        dry_run: bool,
     ) -> Self {
         Self {
             gql_api_endpoint: endpoint,
@@ -41,6 +44,7 @@ impl KamuNodeApiClientImpl {
             molecule_projects_dataset_alias,
             metric_gql_requests_num_total,
             metric_gql_errors_num_total,
+            dry_run,
         }
     }
 
@@ -105,7 +109,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn get_molecule_project_entries(
         &self,
         offset: u64,
-        ignore_ipnft_uids: &std::collections::HashSet<String>,
+        ignore_ipnft_uids: &HashSet<String>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
@@ -350,6 +354,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
     #[tracing::instrument(level = "debug", skip_all, fields(did_pkhs_count = did_pkhs.len()))]
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
+        if self.dry_run {
+            return Ok(());
+        }
+
         // TODO: batches? we have ~700 holders for some IPNFT
 
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
@@ -365,6 +373,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         operations: Vec<AccountDatasetRelationOperation>,
     ) -> color_eyre::Result<()> {
+        if self.dry_run {
+            return Ok(());
+        }
+
         // TODO: batches? we have ~1400 operations for some IPNFT
 
         let operations = operations.into_iter().map(Into::into).collect();

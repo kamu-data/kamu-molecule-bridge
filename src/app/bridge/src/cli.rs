@@ -28,7 +28,11 @@ pub enum Command {
 }
 
 #[derive(Debug, clap::Args)]
-pub struct RunArgs {}
+pub struct RunArgs {
+    /// Mode in which Bridge does not make any changes to Kamu Node.
+    #[clap(long)]
+    pub dry_run: bool,
+}
 
 #[derive(Debug, clap::Args)]
 pub struct StateArgs {}
