@@ -576,12 +576,12 @@ impl App {
                         match log.event_signature_hash() {
                             Safe::AddedOwner::SIGNATURE_HASH => {
                                 let added_owner = parse_safe_added_owner_event(&log.inner)?;
-                                multisig_state.current_owners.insert(dbg!(added_owner));
+                                multisig_state.current_owners.insert(added_owner);
                             }
                             Safe::RemovedOwner::SIGNATURE_HASH => {
                                 let removed_owner = parse_safe_removed_owner_event(&log.inner)?;
                                 multisig_state.current_owners.remove(&removed_owner);
-                                multisig_state.former_owners.insert(dbg!(removed_owner));
+                                multisig_state.former_owners.insert(removed_owner);
                             }
                             unknown_event_signature_hash => {
                                 bail!("Unknown Safe event signature hash: {unknown_event_signature_hash}")
@@ -1362,8 +1362,6 @@ impl App {
                         match log.event_signature_hash() {
                             Safe::RemovedOwner::SIGNATURE_HASH => {
                                 let removed_owner = parse_safe_removed_owner_event(&log.inner)?;
-
-                                dbg!(removed_owner);
 
                                 if !new_multisig_state.current_owners.contains(&removed_owner) {
                                     new_multisig_state.former_owners.insert(removed_owner);
