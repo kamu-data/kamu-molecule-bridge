@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.5.0] - 2025-08-28
+### Changed
+- (#29) Multisig indexing improvements.
+
 ## [0.4.0] - 2025-08-01
 ### Changed
 - (#25) Stabilizing block interval indexing when they contain many events.
