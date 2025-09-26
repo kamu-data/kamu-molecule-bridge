@@ -202,7 +202,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                 indoc::formatdoc!(
                     r#"
                     SELECT '{data_room_dataset_id}' AS data_room_dataset_id,
-                           offset,
+                           "offset",
                            op,
                            path,
                            ref                      AS versioned_file_dataset_id
@@ -216,7 +216,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         let sql = indoc::formatdoc!(
             r#"
             SELECT data_room_dataset_id,
-                   offset,
+                   "offset",
                    op,
                    path,
                    versioned_file_dataset_id
