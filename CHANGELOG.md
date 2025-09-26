@@ -12,6 +12,12 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.5.1] - 2025-09-26
+### Fixed
+- (#30) Updating the SQL query for the list of versioned files after updating Kamu Node version to 0.75.1
+  - Added a workaround so that the query works correctly with Datafusion 50, 
+    which began to be used with the new release.
+
 ## [0.5.0] - 2025-08-28
 ### Added
 - (#29) `kamu-molecule-bridge run --dry-run`: Mode in which Bridge does not make any changes to Kamu Node.
