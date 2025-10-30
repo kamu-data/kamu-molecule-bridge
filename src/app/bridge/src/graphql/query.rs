@@ -9,11 +9,6 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
-    /// Health check query -- returns a simple status message
-    async fn health(&self) -> String {
-        "OK".to_string()
-    }
-
     /// Returns the current application state as JSON
     async fn state(&self, ctx: &Context<'_>) -> async_graphql::Result<Value> {
         let state_requester = ctx.data::<Arc<dyn StateRequester>>()?;
