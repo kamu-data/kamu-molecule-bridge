@@ -51,6 +51,11 @@ alloy = { version = "1", default-features = false, features = [
     "reqwest-rustls-tls",
     "rpc-types-eth",
 ] }
+async-graphql = { version = "7", default-features = false, features = [
+    "graphiql",
+    "tracing"
+] }
+async-graphql-axum = { version = "7", default-features = false }
 async-trait = { version = "0.1", default-features = false }
 axum = { version = "0.8", default-features = false, features = [
     "http1",

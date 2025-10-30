@@ -1,0 +1,39 @@
+use std::sync::Arc;
+
+use async_graphql::extensions::Tracing;
+use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema};
+use serde_json::Value;
+
+use crate::http_server::StateRequester;
+
+pub struct QueryRoot;
+
+#[Object]
+impl QueryRoot {
+    /// Health check query -- returns a simple status message
+    async fn health(&self) -> String {
+        "OK".to_string()
+    }
+
+    /// Returns the current application state as JSON
+    async fn state(&self, ctx: &Context<'_>) -> async_graphql::Result<Value> {
+        let state_requester = ctx.data::<Arc<dyn StateRequester>>()?;
+        let state_json = state_requester.request_as_json().await;
+        Ok(state_json)
+    }
+
+    /// Returns API version information
+    async fn version(&self) -> String {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+}
+
+pub type AppSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
+
+pub fn build_schema(state_requester: Arc<dyn StateRequester>) -> AppSchema {
+    Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+        .extension(Tracing)
+        .enable_federation()
+        .data(state_requester)
+        .finish()
+}
