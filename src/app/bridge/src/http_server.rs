@@ -29,6 +29,8 @@ pub async fn build(
         .data(state_requester.clone())
         .finish();
 
+    // TODO: auth middleware which rejects requests without a valid token
+
     let app = axum::Router::new()
         .route("/system/health", axum::routing::get(health_handler))
         .route(
