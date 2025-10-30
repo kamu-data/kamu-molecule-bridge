@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use async_graphql::extensions::Tracing;
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema};
+use async_graphql::{Context, Object};
 use serde_json::Value;
 
 use crate::http_server::StateRequester;
@@ -26,14 +25,4 @@ impl QueryRoot {
     async fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
     }
-}
-
-pub type AppSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
-
-pub fn build_schema(state_requester: Arc<dyn StateRequester>) -> AppSchema {
-    Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
-        .extension(Tracing)
-        .enable_federation()
-        .data(state_requester)
-        .finish()
 }

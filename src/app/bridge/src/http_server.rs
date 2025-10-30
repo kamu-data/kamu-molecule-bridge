@@ -1,7 +1,8 @@
-use async_trait::async_trait;
-use color_eyre::eyre;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use color_eyre::eyre;
 
 use crate::graphql;
 
@@ -24,7 +25,9 @@ pub async fn build(
     metrics_reg: prometheus::Registry,
     state_requester: Arc<dyn StateRequester>,
 ) -> eyre::Result<(HttpServeFuture, SocketAddr)> {
-    let graphql_schema = graphql::build_schema(state_requester.clone());
+    let graphql_schema = graphql::schema_builder()
+        .data(state_requester.clone())
+        .finish();
 
     let app = axum::Router::new()
         .route("/system/health", axum::routing::get(health_handler))
@@ -36,10 +39,7 @@ pub async fn build(
             "/system/state",
             axum::routing::get(axum::routing::get(state_handler)),
         )
-        .route(
-            HTTP_GRAPHQL_ENDPOINT,
-            axum::routing::get(graphql_playground_handler).post(graphql_handler),
-        )
+        .merge(graphql::router(HTTP_GRAPHQL_ENDPOINT))
         .fallback(observability::axum::unknown_fallback_handler)
         .layer(axum::extract::Extension(metrics_reg))
         .layer(axum::extract::Extension(state_requester))
@@ -65,18 +65,4 @@ pub async fn state_handler(
     let state_json = state_requester.request_as_json().await;
 
     Ok(axum::Json(state_json))
-}
-
-pub async fn graphql_handler(
-    axum::extract::Extension(schema): axum::extract::Extension<graphql::AppSchema>,
-    req: async_graphql_axum::GraphQLRequest,
-) -> async_graphql_axum::GraphQLResponse {
-    schema.execute(req.into_inner()).await.into()
-}
-
-pub async fn graphql_playground_handler() -> axum::response::Html<String> {
-    axum::response::Html(async_graphql::http::graphiql_source(
-        HTTP_GRAPHQL_ENDPOINT,
-        None,
-    ))
 }
