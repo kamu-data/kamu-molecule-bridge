@@ -15,6 +15,7 @@ Recommendation: for ease of reading, use the following order:
 ## [Feature: GQL federation]
 ### Added
 - GQL: initial support with dummy endpoints (#31).
+- CI: `latest` tag added to `kamu-molecule-bridge` image (#31).
 ### Changed
 - Updated Rust toolchain to 1.91.0 (#38).
 
