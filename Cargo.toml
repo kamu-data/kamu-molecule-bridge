@@ -71,6 +71,9 @@ chrono = { version = "0.4", default-features = false, features = [
 color-eyre = { version = "0.6" }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.13", default-features = false }
+nutype = { version = "0.6", default-features = false, features = [
+    "serde"
+] }
 observability = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.245.2", version = "0.245.2", default-features = false, features = [
     "opentelemetry",
     "prometheus",
