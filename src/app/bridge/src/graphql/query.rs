@@ -5,10 +5,10 @@ use serde_json::Value;
 
 use crate::http_server::StateRequester;
 
-pub struct QueryRoot;
+pub struct Query;
 
 #[Object]
-impl QueryRoot {
+impl Query {
     /// Returns the current application state as JSON
     async fn state(&self, ctx: &Context<'_>) -> async_graphql::Result<Value> {
         let state_requester = ctx.data::<Arc<dyn StateRequester>>()?;
