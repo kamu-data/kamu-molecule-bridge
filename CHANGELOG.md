@@ -15,6 +15,8 @@ Recommendation: for ease of reading, use the following order:
 ## [Feature: GQL federation]
 ### Added
 - GQL: initial support with dummy endpoints (#31).
+### Changed
+- Updated Rust toolchain to 1.91.0 (#38).
 
 ## [0.5.1] - 2025-09-26
 ### Fixed
