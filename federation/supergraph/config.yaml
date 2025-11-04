@@ -1,0 +1,8 @@
+federation_version: 2
+subgraphs:
+  kamu-core:
+    schema:
+      subgraph_url: http://localhost:8080/graphql
+  molecule:
+    schema:
+      subgraph_url: http://localhost:8081/graphql

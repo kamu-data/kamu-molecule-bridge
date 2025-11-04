@@ -1,7 +1,7 @@
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider};
-use alloy::rpc::types::{Filter, Log};
+use alloy::rpc::types::{Filter, Log, Topic};
 use alloy::transports::{RpcError, TransportErrorKind};
 use async_trait::async_trait;
 use color_eyre::eyre::{self, ContextCompat, bail};
@@ -108,9 +108,10 @@ where
 
     const MIN_BLOCK_RANGE: u64 = 1;
 
+    let topic = event_signatures.clone().into_iter().collect::<Topic>();
     let filter = Filter::new()
         .address(addresses.clone())
-        .event_signature(event_signatures.clone())
+        .event_signature(topic)
         .from_block(from_block)
         .to_block(to_block);
 

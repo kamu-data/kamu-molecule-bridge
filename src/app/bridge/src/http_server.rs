@@ -1,7 +1,12 @@
-use async_trait::async_trait;
-use color_eyre::eyre;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use color_eyre::eyre;
+
+use crate::graphql;
+
+const HTTP_GRAPHQL_ENDPOINT: &str = "/graphql";
 
 pub type HttpServeFuture = axum::serve::Serve<
     tokio::net::TcpListener,
@@ -20,6 +25,12 @@ pub async fn build(
     metrics_reg: prometheus::Registry,
     state_requester: Arc<dyn StateRequester>,
 ) -> eyre::Result<(HttpServeFuture, SocketAddr)> {
+    let graphql_schema = graphql::schema_builder()
+        .data(state_requester.clone())
+        .finish();
+
+    // TODO: auth middleware which rejects requests without a valid token
+
     let app = axum::Router::new()
         .route("/system/health", axum::routing::get(health_handler))
         .route(
@@ -30,9 +41,11 @@ pub async fn build(
             "/system/state",
             axum::routing::get(axum::routing::get(state_handler)),
         )
+        .merge(graphql::router(HTTP_GRAPHQL_ENDPOINT))
         .fallback(observability::axum::unknown_fallback_handler)
         .layer(axum::extract::Extension(metrics_reg))
-        .layer(axum::extract::Extension(state_requester));
+        .layer(axum::extract::Extension(state_requester))
+        .layer(axum::extract::Extension(graphql_schema));
 
     let addr = std::net::SocketAddr::from((address, http_port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -1,0 +1,57 @@
+# TODO: To unlock docker-compose file:
+#       - [ ] Federation support in Kamu CLI (main branch)
+#       - [ ] Build the latest (tag) Kamu Molecule Bridge image
+#       - [ ] Update config.yaml (replace localhost w/ internal Docker host)
+
+services:
+  kamu-core-api:
+    image: ghcr.io/kamu-data/kamu-base:latest-with-data-mt
+    environment:
+      - KAMU_AUTH_GITHUB_CLIENT_ID=361a3b4fda86d0234d2f
+      - KAMU_AUTH_GITHUB_CLIENT_SECRET=465849325236ed49253993744069e1bec6808554
+    command: kamu system api-server --address 0.0.0.0 --http-port 8080
+    tty: true
+    profiles:
+      - all
+      - subgraphs
+
+  molecule-api:
+    image: ghcr.io/kamu-data/kamu-molecule-bridge:latest
+    environment:
+      - KAMU_MOLECULE_BRIDGE_HTTP_ADDRESS=0.0.0.0
+      - KAMU_MOLECULE_BRIDGE_HTTP_PORT=8081
+    command: run --dry-run
+    tty: true
+    profiles:
+      - all
+      - subgraphs
+
+  rover:
+    image: worksome/rover:0.35.0
+    volumes:
+      - ./supergraph:/supergraph
+    environment:
+      - APOLLO_ELV2_LICENSE=accept
+    command: supergraph compose --config /supergraph/config.yaml -o /supergraph/schema.graphql
+    depends_on:
+      - kamu-core-api
+      - molecule-api
+    profiles:
+      - all
+      - supergraph-compose
+
+  router:
+    image: ghcr.io/apollographql/router:v2.8.0
+    network_mode: host
+    volumes:
+      - ./supergraph:/supergraph
+    environment:
+      - APOLLO_TELEMETRY_DISABLED=true
+    command: --supergraph /supergraph/schema.graphql --dev
+    depends_on:
+      rover:
+        condition: service_completed_successfully
+    tty: true
+    profiles:
+      - all
+      - router
