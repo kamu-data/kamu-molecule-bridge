@@ -22,7 +22,8 @@ build:
 .PHONY: push
 push:
 	docker push $(IMAGE_REPO)/kamu-molecule-bridge:$(APP_VERSION)
-
+	docker tag $(IMAGE_REPO)/kamu-molecule-bridge:$(APP_VERSION) $(IMAGE_REPO)/kamu-molecule-bridge:latest
+	docker push $(IMAGE_REPO)/kamu-molecule-bridge:latest
 
 .PHONY: clean
 clean:
