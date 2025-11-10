@@ -41,8 +41,9 @@ multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-featur
 # Utils
 alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
 
-common-macros = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.252.2", version = "0.252.2", default-features = false }
-observability = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.252.2", version = "0.252.2", default-features = false, features = [
+common-macros = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/gql-federation", default-features = false }
+graphql-macros = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/gql-federation", default-features = false }
+observability = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/gql-federation", default-features = false, features = [
     "opentelemetry",
     "prometheus",
     "tracing-error",
@@ -59,8 +60,9 @@ alloy = { version = "1", default-features = false, features = [
     "rpc-types-eth",
 ] }
 async-graphql = { version = "7", default-features = false, features = [
+    "chrono",
     "graphiql",
-    "tracing"
+    "tracing",
 ] }
 async-graphql-axum = { version = "7", default-features = false }
 async-trait = { version = "0.1", default-features = false }
@@ -78,6 +80,7 @@ chrono = { version = "0.4", default-features = false, features = [
 color-eyre = { version = "0.6" }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.13", default-features = false }
+num-bigint = { version = "0.4", default-features = false }
 nutype = { version = "0.6", default-features = false, features = [
     "serde"
 ] }

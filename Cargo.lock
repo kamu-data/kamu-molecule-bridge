@@ -481,7 +481,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "alloy-sol-types",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -679,7 +679,7 @@ dependencies = [
  "async-trait",
  "color-eyre",
  "pretty_assertions",
- "prometheus",
+ "prometheus 0.13.4",
  "rstest",
  "serde",
  "serde_json",
@@ -978,6 +978,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "chrono",
  "fnv",
  "futures-timer",
  "futures-util",
@@ -1598,6 +1599,15 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common-macros"
+version = "0.251.0"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#c4425de1f5b524ea3843d3e91f570626a67e7f7b"
+dependencies = [
+ "quote",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -2357,6 +2367,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-macros"
+version = "0.251.0"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#c4425de1f5b524ea3843d3e91f570626a67e7f7b"
+dependencies = [
+ "async-graphql",
+]
+
+[[package]]
 name = "graphql-parser"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2878,15 +2896,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2939,16 +2948,19 @@ dependencies = [
  "chrono",
  "clap",
  "color-eyre",
+ "common-macros",
  "confique",
  "dotenv",
+ "graphql-macros",
  "kamu_node_api_client",
  "molecule_contracts",
  "molecule_ipnft",
  "multisig",
  "multisig_safe_wallet",
+ "num-bigint",
  "nutype",
  "observability",
- "prometheus",
+ "prometheus 0.13.4",
  "rustls",
  "serde",
  "serde_json",
@@ -2969,7 +2981,7 @@ dependencies = [
  "mockall",
  "molecule_ipnft",
  "pretty_assertions",
- "prometheus",
+ "prometheus 0.13.4",
  "reqwest",
  "serde",
  "serde_json",
@@ -3386,8 +3398,8 @@ dependencies = [
 
 [[package]]
 name = "observability"
-version = "0.245.2"
-source = "git+https://github.com/kamu-data/kamu-cli?tag=v0.245.2#04ea40c1e225aaee90d4f82807d6594735a0bfab"
+version = "0.251.0"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#c4425de1f5b524ea3843d3e91f570626a67e7f7b"
 dependencies = [
  "async-trait",
  "axum 0.8.6",
@@ -3396,7 +3408,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
- "prometheus",
+ "prometheus 0.14.0",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -3789,6 +3801,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
+dependencies = [
+ "cfg-if",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "proptest"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3824,7 +3850,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.108",

@@ -2,7 +2,7 @@ use async_graphql::{SimpleObject, scalar};
 
 // Kamu Core API: external types
 
-#[nutype::nutype(derive(Serialize, Deserialize))]
+#[nutype::nutype(derive(Serialize, Deserialize, Clone))]
 pub struct AccountID(String);
 
 scalar!(AccountID);
@@ -13,7 +13,7 @@ pub struct Account {
     pub id: AccountID,
 }
 
-#[nutype::nutype(derive(Serialize, Deserialize))]
+#[nutype::nutype(derive(Serialize, Deserialize, Clone))]
 pub struct DatasetID(String);
 
 scalar!(DatasetID);

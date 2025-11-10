@@ -28,6 +28,8 @@ default = []
 [dependencies]
 alloy_ext = { workspace = true }
 chrono = { workspace = true }
+common-macros = { workspace = true }
+graphql-macros = { workspace = true }
 kamu_node_api_client = { workspace = true }
 molecule_contracts = { workspace = true }
 molecule_ipnft = { workspace = true }
@@ -40,6 +42,7 @@ async-graphql-axum = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 color-eyre = { workspace = true }
+num-bigint = { workspace = true }
 nutype = { workspace = true }
 observability = { workspace = true }
 prometheus = { workspace = true }
