@@ -1297,7 +1297,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1604,7 +1604,7 @@ dependencies = [
 [[package]]
 name = "common-macros"
 version = "0.251.0"
-source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#c4425de1f5b524ea3843d3e91f570626a67e7f7b"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#b4219da470d48b11e3620bd5cfe6d9777d350e39"
 dependencies = [
  "quote",
  "syn 2.0.108",
@@ -2369,7 +2369,7 @@ dependencies = [
 [[package]]
 name = "graphql-macros"
 version = "0.251.0"
-source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#c4425de1f5b524ea3843d3e91f570626a67e7f7b"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#b4219da470d48b11e3620bd5cfe6d9777d350e39"
 dependencies = [
  "async-graphql",
 ]
@@ -3399,7 +3399,7 @@ dependencies = [
 [[package]]
 name = "observability"
 version = "0.251.0"
-source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#c4425de1f5b524ea3843d3e91f570626a67e7f7b"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=feature%2Fgql-federation#b4219da470d48b11e3620bd5cfe6d9777d350e39"
 dependencies = [
  "async-trait",
  "axum 0.8.6",
@@ -3850,7 +3850,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.108",
