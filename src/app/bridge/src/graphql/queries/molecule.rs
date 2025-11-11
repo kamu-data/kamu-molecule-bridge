@@ -9,7 +9,12 @@ pub struct Molecule;
 #[common_macros::method_names_consts(const_value_prefix = "Gql::")]
 #[Object]
 impl Molecule {
+    // TODO: use
+    #[expect(unused)]
+
     const DEFAULT_PROJECTS_PER_PAGE: usize = 15;
+    #[expect(unused)]
+
     const DEFAULT_ACTIVITY_EVENTS_PER_PAGE: usize = 15;
 
     /// Looks up the project
@@ -86,6 +91,8 @@ pub struct MoleculeProject {
 #[common_macros::method_names_consts(const_value_prefix = "Gql::")]
 #[ComplexObject]
 impl MoleculeProject {
+    // TODO: use
+    #[expect(unused)]
     const DEFAULT_ACTIVITY_EVENTS_PER_PAGE: usize = 15;
 
     /// Project's organizational account
@@ -146,6 +153,7 @@ pub enum MoleculeProjectEvent {
 #[derive(SimpleObject)]
 #[graphql(complex)]
 pub struct MoleculeProjectEventDataRoomEntryAdded {
+    // TODO: Do we really need Arc here?
     /// Associated project
     pub project: Arc<MoleculeProject>,
     /// Collection entry
@@ -153,6 +161,7 @@ pub struct MoleculeProjectEventDataRoomEntryAdded {
 }
 #[ComplexObject]
 impl MoleculeProjectEventDataRoomEntryAdded {
+    #[graphql(requires = "entry { systemTime }")]
     async fn system_time(&self) -> DateTime<Utc> {
         self.entry.system_time
     }
@@ -168,6 +177,7 @@ pub struct MoleculeProjectEventDataRoomEntryRemoved {
 }
 #[ComplexObject]
 impl MoleculeProjectEventDataRoomEntryRemoved {
+    #[graphql(requires = "entry { systemTime }")]
     async fn system_time(&self) -> DateTime<Utc> {
         self.entry.system_time
     }
@@ -183,6 +193,7 @@ pub struct MoleculeProjectEventDataRoomEntryUpdated {
 }
 #[ComplexObject]
 impl MoleculeProjectEventDataRoomEntryUpdated {
+    #[graphql(requires = "newEntry { systemTime }")]
     async fn system_time(&self) -> DateTime<Utc> {
         self.new_entry.system_time
     }
@@ -199,8 +210,16 @@ pub struct MoleculeProjectEventAnnouncement {
 #[ComplexObject]
 impl MoleculeProjectEventAnnouncement {
     async fn system_time(&self) -> DateTime<Utc> {
-        // todo
-        DateTime::default()
+        // TODO: Query vocab?
+        const DEFAULT_EVENT_TIME_COLUMN_NAME: &str = "event_time";
+
+        DateTime::parse_from_rfc3339(
+            self.announcement[DEFAULT_EVENT_TIME_COLUMN_NAME]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap()
+        .into()
     }
 }
 
@@ -218,6 +237,7 @@ pub struct MoleculeProjectEventFileUpdated {
 }
 #[ComplexObject]
 impl MoleculeProjectEventFileUpdated {
+    #[graphql(requires = "newEntry { systemTime }")]
     async fn system_time(&self) -> DateTime<Utc> {
         self.new_entry.system_time
     }
