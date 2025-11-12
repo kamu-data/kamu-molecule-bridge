@@ -66,3 +66,17 @@ docker run -t --rm \
 ```
 
 3.3. Open http://localhost:4000/graphql to access GraphQL playground.
+
+### Get subgraph schema with federation directives
+
+The schema for GQL API users doesn't contain federation directives for simplicity. However, for debugging superschema
+composing errors, we need to see the exact schema that the Router receives.
+
+```shell
+docker run -t --rm \
+  --network host \
+  -v ./supergraph:/supergraph \
+  -e APOLLO_ELV2_LICENSE=accept \
+  worksome/rover:0.35.0 \
+  subgraph introspect http://localhost:8080/graphql > subgraph_8080.graphql
+```
