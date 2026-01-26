@@ -20,7 +20,7 @@ pub struct KamuNodeApiClientImpl {
     gql_api_endpoint: String,
     token: String,
     molecule_projects_dataset_alias: String,
-    http_client: reqwest::Client,
+    http_client: reqwest_middleware::ClientWithMiddleware,
 
     metric_gql_requests_num_total: prometheus::IntCounter,
     metric_gql_errors_num_total: prometheus::IntCounter,
@@ -37,10 +37,20 @@ impl KamuNodeApiClientImpl {
         metric_gql_errors_num_total: prometheus::IntCounter,
         dry_run: bool,
     ) -> Self {
+        let http_client = {
+            use reqwest_middleware::ClientBuilder;
+            use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
+
+            let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
+            ClientBuilder::new(reqwest::Client::new())
+                .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+                .build()
+        };
+
         Self {
             gql_api_endpoint: endpoint,
             token,
-            http_client: reqwest::Client::new(),
+            http_client,
             molecule_projects_dataset_alias,
             metric_gql_requests_num_total,
             metric_gql_errors_num_total,
@@ -85,7 +95,7 @@ impl KamuNodeApiClientImpl {
             self.metric_gql_errors_num_total.inc();
 
             let body = response.text().await?;
-            bail!("Unexpected status code: {status}, body: {body}",);
+            bail!("Unexpected status code: {status}, body: {body}");
         }
 
         let response: Response<Q::ResponseData> = response.json().await?;

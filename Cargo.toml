@@ -78,6 +78,13 @@ reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "rustls-tls-webpki-roots",
 ] }
+reqwest-middleware = { version = "0.4", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+reqwest-retry = { version = "0.8", default-features = false, features = [
+    "tracing",
+] }
 rstest = { version = "0.26" }
 rustls = { version = "0.23", default-features = false, features = [
     "aws-lc-rs",

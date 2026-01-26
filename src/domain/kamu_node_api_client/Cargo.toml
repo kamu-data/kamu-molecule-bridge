@@ -35,6 +35,8 @@ color-eyre = { workspace = true }
 indoc = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }
+reqwest-middleware = { workspace = true }
+reqwest-retry = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
