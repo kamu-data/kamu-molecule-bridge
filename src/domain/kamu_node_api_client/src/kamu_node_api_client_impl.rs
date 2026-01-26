@@ -260,7 +260,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                     data_room_entries.removed_entities.insert(dataset_id, entry);
                 }
                 OperationType::CorrectFrom | OperationType::CorrectTo => {
-                    // TODO: do we need reaction here?
+                    data_room_entries.added_entities.insert(dataset_id, entry);
                 }
             }
         }
