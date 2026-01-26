@@ -16,7 +16,7 @@ resolver = "3"
 
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
 repository = "https://github.com/kamu-data/kamu-molecule-bridge"
