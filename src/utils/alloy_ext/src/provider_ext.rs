@@ -164,6 +164,9 @@ where
 
             Ok(())
         }
+        Err(e) if is_too_many_requests_error(&e) => {
+            bail!("RPC rate limit exceeded (429 Too Many Requests): {e}");
+        }
         Err(unexpected_error) => Err(unexpected_error)?,
     }
 }
@@ -200,6 +203,14 @@ fn is_too_many_events_error(error: &RpcError<TransportErrorKind>) -> bool {
     }
 
     false
+}
+
+fn is_too_many_requests_error(error: &RpcError<TransportErrorKind>) -> bool {
+    match error {
+        RpcError::ErrorResp(resp) => resp.is_retry_err(),
+        RpcError::Transport(e) => e.is_retry_err(),
+        _ => false,
+    }
 }
 
 fn middle_block(from_block: u64, to_block: u64) -> u64 {
