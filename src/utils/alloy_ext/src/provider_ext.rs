@@ -6,8 +6,6 @@ use alloy::transports::{RpcError, TransportErrorKind};
 use async_trait::async_trait;
 use color_eyre::eyre::{self, ContextCompat, bail};
 use std::collections::HashSet;
-use std::time::Duration;
-use tokio::time::sleep;
 
 pub struct LogsChunk {
     pub from_block: u64,
@@ -109,11 +107,6 @@ where
     debug_assert!(!event_signatures.is_empty());
 
     const MIN_BLOCK_RANGE: u64 = 1;
-    // TODO: Externally configurable
-    // -->
-    const MAX_TOO_MANY_REQUESTS_ATTEMPTS: u32 = 3;
-    const TOO_MANY_REQUESTS_SLEEP: Duration = Duration::from_secs(3);
-    // <--
 
     let filter = Filter::new()
         .address(addresses.clone())
@@ -121,76 +114,60 @@ where
         .from_block(from_block)
         .to_block(to_block);
 
-    let mut last_rate_limit_error = None;
+    let result = provider.get_logs(&filter).await;
 
-    for attempt in 1..=MAX_TOO_MANY_REQUESTS_ATTEMPTS {
-        let result = provider.get_logs(&filter).await;
+    match result {
+        Ok(logs) => {
+            callback(LogsChunk {
+                from_block,
+                to_block,
+                logs,
+            })?;
 
-        match result {
-            Ok(logs) => {
-                callback(LogsChunk {
-                    from_block,
-                    to_block,
-                    logs,
-                })?;
-
-                return Ok(());
-            }
-            Err(e) if is_too_many_events_error(&e) => {
-                let current_range = to_block - from_block + 1;
-
-                if current_range <= MIN_BLOCK_RANGE {
-                    bail!("Cannot split block range [{from_block}, {to_block}] further: {e}");
-                }
-
-                tracing::warn!(
-                    "Too many events for range [{from_block}, {to_block}], splitting in half",
-                );
-
-                // Binary search: split the range in half
-                let middle_block = middle_block(from_block, to_block);
-
-                // Process first half
-                Box::pin(binary_get_logs(
-                    provider,
-                    addresses.clone(),
-                    event_signatures.clone(),
-                    from_block,
-                    middle_block,
-                    callback,
-                ))
-                .await?;
-
-                // Process second half
-                Box::pin(binary_get_logs(
-                    provider,
-                    addresses,
-                    event_signatures,
-                    middle_block + 1,
-                    to_block,
-                    callback,
-                ))
-                .await?;
-
-                return Ok(());
-            }
-            Err(e) if is_too_many_requests_error(&e) => {
-                last_rate_limit_error = Some(e);
-
-                let sleep_duration = TOO_MANY_REQUESTS_SLEEP * attempt;
-
-                sleep(sleep_duration).await;
-            }
-            Err(unexpected_error) => Err(unexpected_error)?,
+            Ok(())
         }
-    }
+        Err(e) if is_too_many_events_error(&e) => {
+            let current_range = to_block - from_block + 1;
 
-    if let Some(error) = last_rate_limit_error {
-        bail!(
-            "RPC rate limit exceeded: attempts exhausted after {MAX_TOO_MANY_REQUESTS_ATTEMPTS} retries: {error}"
-        );
-    } else {
-        unreachable!()
+            if current_range <= MIN_BLOCK_RANGE {
+                bail!("Cannot split block range [{from_block}, {to_block}] further: {e}");
+            }
+
+            tracing::warn!(
+                "Too many events for range [{from_block}, {to_block}], splitting in half",
+            );
+
+            // Binary search: split the range in half
+            let middle_block = middle_block(from_block, to_block);
+
+            // Process first half
+            Box::pin(binary_get_logs(
+                provider,
+                addresses.clone(),
+                event_signatures.clone(),
+                from_block,
+                middle_block,
+                callback,
+            ))
+            .await?;
+
+            // Process second half
+            Box::pin(binary_get_logs(
+                provider,
+                addresses,
+                event_signatures,
+                middle_block + 1,
+                to_block,
+                callback,
+            ))
+            .await?;
+
+            Ok(())
+        }
+        Err(e) if is_too_many_requests_error(&e) => {
+            bail!("RPC rate limit exceeded (429 Too Many Requests): {e}");
+        }
+        Err(unexpected_error) => Err(unexpected_error)?,
     }
 }
 
