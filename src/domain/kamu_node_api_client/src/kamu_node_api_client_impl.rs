@@ -113,7 +113,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
-        // TODO: handle project deletions
+        // TODO: use to_table() UDF
         let sql = indoc::formatdoc!(
             r#"
             SELECT offset,
@@ -122,8 +122,15 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                    ipnft_symbol,
                    data_room_dataset_id,
                    announcements_dataset_id
-            FROM '{molecule_projects}'
-            WHERE offset >= {offset}
+            FROM (SELECT *,
+                         ROW_NUMBER() OVER (
+                             PARTITION BY account_id
+                             ORDER BY `offset` DESC
+                         ) AS __rank
+                  FROM '{molecule_projects}')
+            WHERE __rank = 1
+              AND op != 1 -- means retraction
+              AND offset >= {offset}
             ORDER BY offset
             "#
         );
