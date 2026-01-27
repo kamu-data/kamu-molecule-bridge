@@ -1651,17 +1651,15 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
                 dataset_id: dataset_id.clone(),
                 change: IpnftDataRoomFileChange::Removed,
             });
-        } else {
-            if current_access != new_access {
-                changes.push(ChangedVersionedFile {
-                    dataset_id: dataset_id.clone(),
-                    change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
-                        from: current_access,
-                        to: new_access,
-                    },
-                });
-            }
-        };
+        } else if current_access != new_access {
+            changes.push(ChangedVersionedFile {
+                dataset_id: dataset_id.clone(),
+                change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                    from: current_access,
+                    to: new_access,
+                },
+            });
+        }
     }
 
     changes

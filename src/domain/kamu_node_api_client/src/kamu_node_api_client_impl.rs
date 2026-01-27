@@ -62,7 +62,7 @@ impl KamuNodeApiClientImpl {
         let response = self
             .gql_api_call::<SqlQuery>(sql_query::Variables {
                 sql,
-                limit: MAX_SQL_QUERY_LIMIT as i64,
+                limit: i64::try_from(MAX_SQL_QUERY_LIMIT).unwrap(),
             })
             .await?;
         let raw_query_result = match response.data.query {
