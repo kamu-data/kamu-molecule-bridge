@@ -10,11 +10,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
-use crate::{
-    AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
-    DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry, OperationType, VersionedFileEntry, VersionedFilesEntriesMap,
-};
+use crate::*;
 
 const MAX_SQL_QUERY_LIMIT: usize = 10_000;
 
@@ -128,6 +124,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
+        // NOTE: We don't exclude retracted (-R) records. They are needed to correctly revoke permissions.
         let sql = indoc::formatdoc!(
             r#"
             SELECT offset,
@@ -137,9 +134,15 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                    ipnft_symbol,
                    data_room_dataset_id,
                    announcements_dataset_id
-            FROM '{molecule_projects}'
-            WHERE offset >= {offset}
-            ORDER BY offset
+            FROM (SELECT *,
+                         row_number() over (
+                                         partition BY ipnft_symbol -- NOTE: account_id can change if the account is deleted
+                                         ORDER BY `offset` DESC
+                                     ) AS __rank
+                  FROM '{molecule_projects}')
+            WHERE __rank IN (1, 2) -- NOTE: include the last retracted records
+              AND offset >= {offset}
+            ORDER BY `offset`
             "#
         );
 
