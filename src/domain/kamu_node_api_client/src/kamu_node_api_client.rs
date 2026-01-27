@@ -32,6 +32,11 @@ pub trait KamuNodeApiClient {
         &self,
         operations: Vec<AccountDatasetRelationOperation>,
     ) -> eyre::Result<()>;
+
+    async fn resolve_datasets(
+        &self,
+        dataset_ids: Vec<DatasetID>,
+    ) -> eyre::Result<DatasetResolution>;
 }
 
 pub type DatasetID = String;
@@ -162,4 +167,10 @@ pub enum DatasetRoleOperation {
 pub enum DatasetAccessRole {
     Reader,
     Maintainer,
+}
+
+#[derive(Debug)]
+pub struct DatasetResolution {
+    pub resolved_dataset_ids: Vec<DatasetID>,
+    pub not_found_dataset_ids: Vec<DatasetID>,
 }
