@@ -12,14 +12,14 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
-## [0.5.2] - 2026-01-26
+## [0.5.2] - 2026-01-28
 ### Changed
 - HTTP: Added exponential backoff on errors (#44).
 - GQL: Update kamu-api-server schema (#44).
 ### Fixed
 - Access revocation for deleted/disabled projects (`-R`, retraction) (#44).
 - Config (env vars): `KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS` correct parsing of list values (#44).
-- Increased the number of rows requested in SQL query results.
+- Increased the number of rows requested in SQL query results (#44).
 
 ## [0.5.1] - 2026-01-26
 ### Fixed
