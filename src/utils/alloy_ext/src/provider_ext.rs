@@ -1,7 +1,7 @@
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider};
-use alloy::rpc::types::{Filter, Log};
+use alloy::rpc::types::{Filter, FilterSet, Log};
 use alloy::transports::{RpcError, TransportErrorKind};
 use async_trait::async_trait;
 use color_eyre::eyre::{self, ContextCompat, bail};
@@ -110,7 +110,7 @@ where
 
     let filter = Filter::new()
         .address(addresses.clone())
-        .event_signature(event_signatures.clone())
+        .event_signature(FilterSet::from_iter(event_signatures.clone()))
         .from_block(from_block)
         .to_block(to_block);
 
