@@ -77,6 +77,12 @@ pub struct MoleculeProjectEntry {
     pub announcements_dataset_id: DatasetID,
 }
 
+impl MoleculeProjectEntry {
+    pub fn is_deleted(&self) -> bool {
+        self.op == OperationType::Retract
+    }
+}
+
 pub type VersionedFilesEntriesMap =
     HashMap</* data_room_dataset_id */ DatasetID, VersionedFilesEntries>;
 
