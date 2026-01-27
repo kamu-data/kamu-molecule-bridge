@@ -16,6 +16,9 @@ Recommendation: for ease of reading, use the following order:
 ### Changed
 - HTTP: Added exponential backoff on errors (#44).
 - GQL: Update kamu-api-server schema (#44).
+- Updated some dependencies (#44):
+  - `alloy` to `1.5.2`
+  - `aws-lc-rs` to `1.15.4`
 ### Fixed
 - Access revocation for deleted/disabled projects (`-R`, retraction) (#44).
 - Config (env vars): `KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS` correct parsing of list values (#44).
