@@ -424,36 +424,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
         Ok(())
     }
-
-    #[tracing::instrument(level = "debug", skip_all, fields(datasets_count = dataset_ids.len()))]
-    async fn resolve_datasets(
-        &self,
-        dataset_ids: Vec<DatasetID>,
-    ) -> eyre::Result<DatasetResolution> {
-        let response = self
-            .gql_api_call::<AvailabilityOfDatasets>(availability_of_datasets::Variables {
-                dataset_ids: dataset_ids.clone(),
-            })
-            .await?;
-
-        let resolved_dataset_ids = response
-            .datasets
-            .by_ids
-            .into_iter()
-            .map(|dataset| dataset.id)
-            .collect::<Vec<_>>();
-        let resolved_dataset_ids_set = resolved_dataset_ids.iter().collect::<HashSet<_>>();
-        let not_found_dataset_ids = dataset_ids
-            .iter()
-            .filter(|id| !resolved_dataset_ids_set.contains(id))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        Ok(DatasetResolution {
-            resolved_dataset_ids,
-            not_found_dataset_ids,
-        })
-    }
 }
 
 #[derive(GraphQLQuery)]
@@ -562,11 +532,3 @@ impl From<AccountDatasetRelationOperation>
         }
     }
 }
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "gql/schema.graphql",
-    query_path = "gql/availability_of_datasets.graphql",
-    response_derives = "Debug"
-)]
-struct AvailabilityOfDatasets;
