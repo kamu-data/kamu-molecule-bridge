@@ -821,7 +821,7 @@ impl App {
             })
             .collect::<Vec<_>>();
 
-        // Second, check for new allowlisted projects.
+        // Second, check for new project entries.
         let new_projects_entries = self
             .kamu_node_api_client
             .get_molecule_project_entries(
@@ -830,7 +830,7 @@ impl App {
                     .map(|off| off + 1)
                     .unwrap_or(0),
                 &self.ignore_projects_ipnft_uids,
-            ) // NOTE: only new allowlisted projects
+            )
             .await?;
         let new_data_room_dataset_ids_with_offsets = new_projects_entries
             .iter()
@@ -901,6 +901,7 @@ impl App {
             };
 
             let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                project_entry,
                 &versioned_files_entries,
                 &molecule_access_levels_map,
             );
@@ -922,6 +923,7 @@ impl App {
                 .extend(added_file_entries_map);
             // ... (and check if molecule_access_level has changed for existing files), ...
             let changed_versioned_files = prepare_changes_based_on_changed_molecule_access_levels(
+                project_entry,
                 &existing_project.actual_files_map,
                 &molecule_access_levels_map,
             );
@@ -940,7 +942,7 @@ impl App {
             }
         }
 
-        // III. Process new projects.
+        // III. Process new project entries.
         // NOTE: Projects are sorted, so we can simply assign each new value.
         let mut new_projects_dataset_offset = app_state.projects_dataset_offset;
 
@@ -948,7 +950,7 @@ impl App {
             let mut detected_changes = Vec::new();
 
             let _span = tracing::debug_span!(
-                "Process new project",
+                "Process new project entry",
                 symbol = project_entry.symbol,
                 ipnft_uid = %project_entry.ipnft_uid
             )
@@ -970,6 +972,7 @@ impl App {
             };
 
             let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
+                &project_entry,
                 &versioned_files_entries,
                 &molecule_access_levels_map,
             );
@@ -1583,6 +1586,7 @@ struct GetAccountsByIpnftStateResponse {
 }
 
 fn prepare_changes_based_on_changed_versioned_files_entries(
+    project_entry: &MoleculeProjectEntry,
     versioned_files_entries: &VersionedFilesEntries,
     molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
 ) -> Vec<ChangedVersionedFile> {
@@ -1602,9 +1606,16 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
             continue;
         };
 
+        // NOTE: If the project is deleted, consider all files deleted as well.
+        let change = if project_entry.is_deleted() {
+            IpnftDataRoomFileChange::Removed
+        } else {
+            IpnftDataRoomFileChange::Added(molecule_access_levels)
+        };
+
         changes.push(ChangedVersionedFile {
             dataset_id: added_dataset_id.clone(),
-            change: IpnftDataRoomFileChange::Added(molecule_access_levels),
+            change,
         });
     }
     for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
@@ -1618,6 +1629,7 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
 }
 
 fn prepare_changes_based_on_changed_molecule_access_levels(
+    project_entry: &MoleculeProjectEntry,
     project_actual_files_map: &HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
     molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
 ) -> Vec<ChangedVersionedFile> {
@@ -1633,15 +1645,23 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
             continue;
         };
 
-        if current_access != new_access {
+        // NOTE: If the project is deleted, consider all files deleted as well.
+        if project_entry.is_deleted() {
             changes.push(ChangedVersionedFile {
                 dataset_id: dataset_id.clone(),
-                change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
-                    from: current_access,
-                    to: new_access,
-                },
+                change: IpnftDataRoomFileChange::Removed,
             });
-        }
+        } else {
+            if current_access != new_access {
+                changes.push(ChangedVersionedFile {
+                    dataset_id: dataset_id.clone(),
+                    change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                        from: current_access,
+                        to: new_access,
+                    },
+                });
+            }
+        };
     }
 
     changes
