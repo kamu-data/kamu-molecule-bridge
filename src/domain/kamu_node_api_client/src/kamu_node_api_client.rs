@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use color_eyre::eyre;
+use color_eyre::eyre::{self, bail};
 use molecule_ipnft::entities::IpnftUid;
 use serde::{Deserialize, Serialize};
 
@@ -37,10 +37,34 @@ pub trait KamuNodeApiClient {
 pub type DatasetID = String;
 pub type AccountID = String;
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub enum OperationType {
+    Append = 0,
+    Retract = 1,
+    CorrectFrom = 2,
+    CorrectTo = 3,
+}
+
+impl TryFrom<u8> for OperationType {
+    type Error = eyre::Error;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        let op = match v {
+            0 => OperationType::Append,
+            1 => OperationType::Retract,
+            2 => OperationType::CorrectFrom,
+            3 => OperationType::CorrectTo,
+            unexpected => bail!("Unexpected operation type: {unexpected}"),
+        };
+        Ok(op)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct MoleculeProjectEntry {
     pub offset: u64,
-    pub op: u8,
+    pub op: OperationType,
     pub ipnft_uid: IpnftUid,
     pub symbol: String,
     pub project_account_id: AccountID,

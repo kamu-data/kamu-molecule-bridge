@@ -13,7 +13,7 @@ use crate::did_phk::DidPhk;
 use crate::{
     AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
     DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry, VersionedFileEntry, VersionedFilesEntriesMap,
+    MoleculeProjectEntry, OperationType, VersionedFileEntry, VersionedFilesEntriesMap,
 };
 
 pub struct KamuNodeApiClientImpl {
@@ -410,8 +410,8 @@ struct SqlQuery;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MoleculeProjectEntryDto {
-    op: u8,
     offset: u64,
+    op: u8,
     ipnft_uid: String,
     ipnft_symbol: String,
     project_account_id: crate::AccountID,
@@ -424,8 +424,8 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
 
     fn try_into(self) -> Result<MoleculeProjectEntry, Self::Error> {
         Ok(MoleculeProjectEntry {
-            op: self.op,
             offset: self.offset,
+            op: self.op.try_into()?,
             ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
             symbol: self.ipnft_symbol,
             project_account_id: self.project_account_id,
@@ -469,30 +469,6 @@ struct VersionedFileWithEntriesDto {
 struct VersionedFileMoleculeAccessLevelDto {
     versioned_file_dataset_id: String,
     molecule_access_level: MoleculeAccessLevel,
-}
-
-#[repr(u8)]
-#[derive(Debug)]
-enum OperationType {
-    Append = 0,
-    Retract = 1,
-    CorrectFrom = 2,
-    CorrectTo = 3,
-}
-
-impl TryFrom<u8> for OperationType {
-    type Error = eyre::Error;
-
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        let op = match v {
-            0 => OperationType::Append,
-            1 => OperationType::Retract,
-            2 => OperationType::CorrectFrom,
-            3 => OperationType::CorrectTo,
-            unexpected => bail!("Unexpected operation type: {unexpected}"),
-        };
-        Ok(op)
-    }
 }
 
 #[derive(GraphQLQuery)]
