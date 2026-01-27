@@ -126,6 +126,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         let sql = indoc::formatdoc!(
             r#"
             SELECT offset,
+                   op,
                    account_id AS project_account_id,
                    ipnft_uid,
                    ipnft_symbol,
@@ -409,6 +410,7 @@ struct SqlQuery;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MoleculeProjectEntryDto {
+    op: u8,
     offset: u64,
     ipnft_uid: String,
     ipnft_symbol: String,
@@ -422,6 +424,7 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
 
     fn try_into(self) -> Result<MoleculeProjectEntry, Self::Error> {
         Ok(MoleculeProjectEntry {
+            op: self.op,
             offset: self.offset,
             ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
             symbol: self.ipnft_symbol,

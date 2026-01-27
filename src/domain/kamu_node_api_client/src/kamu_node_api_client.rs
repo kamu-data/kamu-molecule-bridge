@@ -40,6 +40,7 @@ pub type AccountID = String;
 #[derive(Debug, Serialize)]
 pub struct MoleculeProjectEntry {
     pub offset: u64,
+    pub op: u8,
     pub ipnft_uid: IpnftUid,
     pub symbol: String,
     pub project_account_id: AccountID,
