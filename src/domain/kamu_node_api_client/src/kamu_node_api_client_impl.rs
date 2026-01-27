@@ -168,14 +168,32 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             return Ok(VersionedFilesEntriesMap::new());
         }
 
+        let data_room_dataset_ids = {
+            let ids = data_rooms
+                .iter()
+                .map(|data_room| data_room.dataset_id.clone())
+                .collect::<Vec<_>>();
+            let resolution = self.resolve_datasets(ids).await?;
+
+            if !resolution.not_found_dataset_ids.is_empty() {
+                // NOTE: To prevent SQL errors when a dataset doesn't exist. This can happen
+                //       if the dataset was manually deleted.
+                tracing::warn!(
+                    "Some data rooms were not found (will be skipped during processing): {:?}",
+                    resolution.not_found_dataset_ids
+                );
+            }
+
+            resolution.resolved_dataset_ids
+        };
+
         // NOTE: Since there might be data rooms with no records
         //       (and hence no data schema), we need to filter them out
         //       from the later query.
         let data_rooms_with_entries = {
-            let data_room_has_entries_queries = data_rooms
+            let data_room_has_entries_queries = data_room_dataset_ids
                 .iter()
-                .map(|data_room| {
-                    let data_room_dataset_id = &data_room.dataset_id;
+                .map(|data_room_dataset_id| {
                     indoc::formatdoc!(
                         r#"
                         SELECT '{data_room_dataset_id}' AS data_room_dataset_id,
