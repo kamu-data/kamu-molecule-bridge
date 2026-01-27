@@ -16,6 +16,8 @@ use crate::{
     MoleculeProjectEntry, OperationType, VersionedFileEntry, VersionedFilesEntriesMap,
 };
 
+const MAX_SQL_QUERY_LIMIT: usize = 10_000;
+
 pub struct KamuNodeApiClientImpl {
     gql_api_endpoint: String,
     token: String,
@@ -62,7 +64,10 @@ impl KamuNodeApiClientImpl {
         use sql_query::SqlQueryDataQuery;
 
         let response = self
-            .gql_api_call::<SqlQuery>(sql_query::Variables { sql })
+            .gql_api_call::<SqlQuery>(sql_query::Variables {
+                sql,
+                limit: MAX_SQL_QUERY_LIMIT as i64,
+            })
             .await?;
         let raw_query_result = match response.data.query {
             SqlQueryDataQuery::DataQueryResultSuccess(query_result) => query_result,
