@@ -14,7 +14,7 @@ Recommendation: for ease of reading, use the following order:
 
 ## [0.5.3] - 2026-01-28
 ### Fixed
-- `MoleculeAccessLevel::Holder`: extended to support plural values encountered on testnet.
+- `MoleculeAccessLevel::Holder`: extended to support plural values encountered on testnet (#45).
 
 ## [0.5.2] - 2026-01-28
 ### Changed
