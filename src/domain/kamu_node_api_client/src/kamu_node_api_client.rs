@@ -114,7 +114,8 @@ pub enum MoleculeAccessLevel {
     Admin,
     #[serde(rename = "admin_2", alias = "ADMIN_2")]
     Admin2,
-    #[serde(alias = "HOLDER")]
+    // NOTE: plural variants only occur for molecule.dev / testnet
+    #[serde(alias = "HOLDER", alias = "holders", alias = "HOLDERS")]
     Holder,
 }
 

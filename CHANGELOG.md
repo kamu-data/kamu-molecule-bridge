@@ -12,6 +12,10 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
+## [0.5.3] - 2026-01-28
+### Fixed
+- `MoleculeAccessLevel::Holder`: extended to support plural values encountered on testnet.
+
 ## [0.5.2] - 2026-01-28
 ### Changed
 - HTTP: Added exponential backoff on errors (#44).
