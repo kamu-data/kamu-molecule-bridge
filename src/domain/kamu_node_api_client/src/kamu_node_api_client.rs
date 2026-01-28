@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use color_eyre::eyre;
+use color_eyre::eyre::{self, bail};
 use molecule_ipnft::entities::IpnftUid;
 use serde::{Deserialize, Serialize};
 
@@ -32,19 +32,55 @@ pub trait KamuNodeApiClient {
         &self,
         operations: Vec<AccountDatasetRelationOperation>,
     ) -> eyre::Result<()>;
+
+    async fn resolve_datasets(
+        &self,
+        dataset_ids: Vec<DatasetID>,
+    ) -> eyre::Result<DatasetResolution>;
 }
 
 pub type DatasetID = String;
 pub type AccountID = String;
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub enum OperationType {
+    Append = 0,
+    Retract = 1,
+    CorrectFrom = 2,
+    CorrectTo = 3,
+}
+
+impl TryFrom<u8> for OperationType {
+    type Error = eyre::Error;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        let op = match v {
+            0 => OperationType::Append,
+            1 => OperationType::Retract,
+            2 => OperationType::CorrectFrom,
+            3 => OperationType::CorrectTo,
+            unexpected => bail!("Unexpected operation type: {unexpected}"),
+        };
+        Ok(op)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct MoleculeProjectEntry {
     pub offset: u64,
+    pub op: OperationType,
     pub ipnft_uid: IpnftUid,
     pub symbol: String,
     pub project_account_id: AccountID,
     pub data_room_dataset_id: DatasetID,
     pub announcements_dataset_id: DatasetID,
+}
+
+impl MoleculeProjectEntry {
+    pub fn is_deleted(&self) -> bool {
+        self.op == OperationType::Retract
+    }
 }
 
 pub type VersionedFilesEntriesMap =
@@ -131,4 +167,10 @@ pub enum DatasetRoleOperation {
 pub enum DatasetAccessRole {
     Reader,
     Maintainer,
+}
+
+#[derive(Debug)]
+pub struct DatasetResolution {
+    pub resolved_dataset_ids: Vec<DatasetID>,
+    pub not_found_dataset_ids: Vec<DatasetID>,
 }

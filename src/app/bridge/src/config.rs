@@ -44,7 +44,7 @@ pub struct Config {
     pub indexing_delay_between_iterations_in_secs: u64,
 
     /// List of projects (identified by `ipnft_uid`) that should be ignored
-    #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS")]
+    #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS", parse_env = confique::env::parse::list_by_comma)]
     pub ignore_projects_ipnft_uids: Option<std::collections::HashSet<String>>,
 }
 

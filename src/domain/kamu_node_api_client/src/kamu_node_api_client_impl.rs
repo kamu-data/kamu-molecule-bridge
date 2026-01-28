@@ -10,17 +10,15 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
-use crate::{
-    AccountDatasetRelationOperation, DataRoomDatasetIdWithOffset, DatasetAccessRole, DatasetID,
-    DatasetRoleOperation, KamuNodeApiClient, MoleculeAccessLevel, MoleculeAccessLevelEntryMap,
-    MoleculeProjectEntry, VersionedFileEntry, VersionedFilesEntriesMap,
-};
+use crate::*;
+
+const MAX_SQL_QUERY_LIMIT: usize = 10_000;
 
 pub struct KamuNodeApiClientImpl {
     gql_api_endpoint: String,
     token: String,
     molecule_projects_dataset_alias: String,
-    http_client: reqwest::Client,
+    http_client: reqwest_middleware::ClientWithMiddleware,
 
     metric_gql_requests_num_total: prometheus::IntCounter,
     metric_gql_errors_num_total: prometheus::IntCounter,
@@ -37,10 +35,20 @@ impl KamuNodeApiClientImpl {
         metric_gql_errors_num_total: prometheus::IntCounter,
         dry_run: bool,
     ) -> Self {
+        let http_client = {
+            use reqwest_middleware::ClientBuilder;
+            use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
+
+            let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
+            ClientBuilder::new(reqwest::Client::new())
+                .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+                .build()
+        };
+
         Self {
             gql_api_endpoint: endpoint,
             token,
-            http_client: reqwest::Client::new(),
+            http_client,
             molecule_projects_dataset_alias,
             metric_gql_requests_num_total,
             metric_gql_errors_num_total,
@@ -52,7 +60,10 @@ impl KamuNodeApiClientImpl {
         use sql_query::SqlQueryDataQuery;
 
         let response = self
-            .gql_api_call::<SqlQuery>(sql_query::Variables { sql })
+            .gql_api_call::<SqlQuery>(sql_query::Variables {
+                sql,
+                limit: i64::try_from(MAX_SQL_QUERY_LIMIT).unwrap(),
+            })
             .await?;
         let raw_query_result = match response.data.query {
             SqlQueryDataQuery::DataQueryResultSuccess(query_result) => query_result,
@@ -85,7 +96,7 @@ impl KamuNodeApiClientImpl {
             self.metric_gql_errors_num_total.inc();
 
             let body = response.text().await?;
-            bail!("Unexpected status code: {status}, body: {body}",);
+            bail!("Unexpected status code: {status}, body: {body}");
         }
 
         let response: Response<Q::ResponseData> = response.json().await?;
@@ -113,18 +124,25 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
-        // TODO: handle project deletions
+        // NOTE: We don't exclude retracted (-R) records. They are needed to correctly revoke permissions.
         let sql = indoc::formatdoc!(
             r#"
             SELECT offset,
+                   op,
                    account_id AS project_account_id,
                    ipnft_uid,
                    ipnft_symbol,
                    data_room_dataset_id,
                    announcements_dataset_id
-            FROM '{molecule_projects}'
-            WHERE offset >= {offset}
-            ORDER BY offset
+            FROM (SELECT *,
+                         row_number() over (
+                                         partition BY ipnft_symbol -- NOTE: account_id can change if the account is deleted
+                                         ORDER BY `offset` DESC
+                                     ) AS __rank
+                  FROM '{molecule_projects}')
+            WHERE __rank IN (1, 2) -- NOTE: include the last retracted records
+              AND offset >= {offset}
+            ORDER BY `offset`
             "#
         );
 
@@ -150,14 +168,32 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             return Ok(VersionedFilesEntriesMap::new());
         }
 
+        let data_room_dataset_ids = {
+            let ids = data_rooms
+                .iter()
+                .map(|data_room| data_room.dataset_id.clone())
+                .collect::<Vec<_>>();
+            let resolution = self.resolve_datasets(ids).await?;
+
+            if !resolution.not_found_dataset_ids.is_empty() {
+                // NOTE: To prevent SQL errors when a dataset doesn't exist. This can happen
+                //       if the dataset was manually deleted.
+                tracing::warn!(
+                    "Some data rooms were not found (will be skipped during processing): {:?}",
+                    resolution.not_found_dataset_ids
+                );
+            }
+
+            resolution.resolved_dataset_ids
+        };
+
         // NOTE: Since there might be data rooms with no records
         //       (and hence no data schema), we need to filter them out
         //       from the later query.
         let data_rooms_with_entries = {
-            let data_room_has_entries_queries = data_rooms
+            let data_room_has_entries_queries = data_room_dataset_ids
                 .iter()
-                .map(|data_room| {
-                    let data_room_dataset_id = &data_room.dataset_id;
+                .map(|data_room_dataset_id| {
                     indoc::formatdoc!(
                         r#"
                         SELECT '{data_room_dataset_id}' AS data_room_dataset_id,
@@ -253,7 +289,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                     data_room_entries.removed_entities.insert(dataset_id, entry);
                 }
                 OperationType::CorrectFrom | OperationType::CorrectTo => {
-                    // TODO: do we need reaction here?
+                    data_room_entries.added_entities.insert(dataset_id, entry);
                 }
             }
         }
@@ -388,6 +424,36 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
         Ok(())
     }
+
+    #[tracing::instrument(level = "debug", skip_all, fields(datasets_count = dataset_ids.len()))]
+    async fn resolve_datasets(
+        &self,
+        dataset_ids: Vec<DatasetID>,
+    ) -> eyre::Result<DatasetResolution> {
+        let response = self
+            .gql_api_call::<AvailabilityOfDatasets>(availability_of_datasets::Variables {
+                dataset_ids: dataset_ids.clone(),
+            })
+            .await?;
+
+        let resolved_dataset_ids = response
+            .datasets
+            .by_ids
+            .into_iter()
+            .map(|dataset| dataset.id)
+            .collect::<Vec<_>>();
+        let resolved_dataset_ids_set = resolved_dataset_ids.iter().collect::<HashSet<_>>();
+        let not_found_dataset_ids = dataset_ids
+            .iter()
+            .filter(|id| !resolved_dataset_ids_set.contains(id))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        Ok(DatasetResolution {
+            resolved_dataset_ids,
+            not_found_dataset_ids,
+        })
+    }
 }
 
 #[derive(GraphQLQuery)]
@@ -401,6 +467,7 @@ struct SqlQuery;
 #[derive(Debug, Serialize, Deserialize)]
 struct MoleculeProjectEntryDto {
     offset: u64,
+    op: u8,
     ipnft_uid: String,
     ipnft_symbol: String,
     project_account_id: crate::AccountID,
@@ -414,6 +481,7 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
     fn try_into(self) -> Result<MoleculeProjectEntry, Self::Error> {
         Ok(MoleculeProjectEntry {
             offset: self.offset,
+            op: self.op.try_into()?,
             ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
             symbol: self.ipnft_symbol,
             project_account_id: self.project_account_id,
@@ -459,30 +527,6 @@ struct VersionedFileMoleculeAccessLevelDto {
     molecule_access_level: MoleculeAccessLevel,
 }
 
-#[repr(u8)]
-#[derive(Debug)]
-enum OperationType {
-    Append = 0,
-    Retract = 1,
-    CorrectFrom = 2,
-    CorrectTo = 3,
-}
-
-impl TryFrom<u8> for OperationType {
-    type Error = eyre::Error;
-
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        let op = match v {
-            0 => OperationType::Append,
-            1 => OperationType::Retract,
-            2 => OperationType::CorrectFrom,
-            3 => OperationType::CorrectTo,
-            unexpected => bail!("Unexpected operation type: {unexpected}"),
-        };
-        Ok(op)
-    }
-}
-
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "gql/schema.graphql",
@@ -518,3 +562,11 @@ impl From<AccountDatasetRelationOperation>
         }
     }
 }
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "gql/schema.graphql",
+    query_path = "gql/availability_of_datasets.graphql",
+    response_derives = "Debug"
+)]
+struct AvailabilityOfDatasets;

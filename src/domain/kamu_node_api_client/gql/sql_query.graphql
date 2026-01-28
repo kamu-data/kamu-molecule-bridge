@@ -1,6 +1,11 @@
-query SqlQuery($sql: String!) {
+query SqlQuery($sql: String!, $limit: Int!) {
   data {
-    query(query: $sql, queryDialect: SQL_DATA_FUSION, dataFormat: JSON_AOS) {
+    query(
+      query: $sql
+      queryDialect: SQL_DATA_FUSION
+      dataFormat: JSON_AOS
+      limit: $limit
+    ) {
       __typename
       ... on DataQueryResultSuccess {
         data {

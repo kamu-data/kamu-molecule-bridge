@@ -65,9 +65,21 @@ type Account {
 	"""
 	flows: AccountFlows!
 	"""
-	Access to the flow configurations of this account
+	Access to the access token management
 	"""
 	accessTokens: AccountAccessTokens!
+	"""
+	Access to account usage statistic
+	"""
+	usage: AccountUsage!
+	"""
+	Returns datasets belonging to this account
+	"""
+	ownedDatasets(page: Int, perPage: Int): DatasetConnection!
+	"""
+	Returns account quotas
+	"""
+	quotas: AccountQuotas!
 }
 
 type AccountAccessTokens {
@@ -113,10 +125,41 @@ type AccountFieldNonUnique implements CreateAccountResult {
 }
 
 input AccountFlowFilters {
-	byFlowType: DatasetFlowType
-	byStatus: FlowStatus
+	byStatus: [FlowStatus!]
 	byInitiator: InitiatorFilterInput
 	byDatasetIds: [DatasetID!]!
+	byProcessType: FlowProcessTypeFilterInput
+}
+
+union AccountFlowProcessCard = DatasetFlowProcess | WebhookFlowSubProcess
+
+type AccountFlowProcessCardConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [AccountFlowProcessCard!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [AccountFlowProcessCardEdge!]!
+}
+
+type AccountFlowProcessCardEdge {
+	node: AccountFlowProcessCard!
+}
+
+type AccountFlowProcesses {
+	primaryRollup: FlowProcessGroupRollup!
+	webhookRollup: FlowProcessGroupRollup!
+	fullRollup: FlowProcessGroupRollup!
+	primaryCards(filters: FlowProcessFilters, ordering: FlowProcessOrdering, page: Int, perPage: Int): DatasetFlowProcessConnection!
+	webhookCards(filters: FlowProcessFilters, ordering: FlowProcessOrdering, page: Int, perPage: Int): WebhookFlowSubProcessConnection!
+	allCards(filters: FlowProcessFilters, ordering: FlowProcessOrdering, page: Int, perPage: Int): AccountFlowProcessCardConnection!
 }
 
 type AccountFlowRuns {
@@ -138,6 +181,10 @@ type AccountFlowTriggersMut {
 
 type AccountFlows {
 	"""
+	Returns interface for flow processes summary queries
+	"""
+	processes: AccountFlowProcesses!
+	"""
 	Returns interface for flow runs queries
 	"""
 	runs: AccountFlowRuns!
@@ -158,6 +205,10 @@ input AccountLookupFilter {
 }
 
 type AccountMut {
+	"""
+	Convert to read-only accessor to an account
+	"""
+	account: Account!
 	"""
 	Update account name
 	"""
@@ -186,6 +237,10 @@ type AccountMut {
 	Access to the mutable flow configurations of this account
 	"""
 	accessTokens: AccountAccessTokensMut!
+	"""
+	Access to the mutable quotas of this account
+	"""
+	quotas: AccountQuotasMut!
 }
 
 scalar AccountName
@@ -198,9 +253,41 @@ enum AccountProvider {
 	WEB3_WALLET
 }
 
+type AccountQuotas {
+	"""
+	User-level quotas
+	"""
+	user: AccountQuotasUsage!
+}
+
+type AccountQuotasMut {
+	"""
+	Setting quotas at the account level.
+	"""
+	setAccountQuotas(quotas: SetAccountQuotasInput!): SetAccountQuotasResult!
+}
+
+type AccountQuotasUsage {
+	"""
+	User-level quotas
+	"""
+	storage: AccountQuotasUsageStorage!
+}
+
+type AccountQuotasUsageStorage {
+	"""
+	Total bytes limit for this account.
+	"""
+	limitTotalBytes: Int!
+}
+
 enum AccountType {
 	USER
 	ORGANIZATION
+}
+
+type AccountUsage {
+	storage: TotalDatasetsStatistic!
 }
 
 type AccountWithRole {
@@ -230,24 +317,74 @@ type AccountWithRoleEdge {
 
 type Accounts {
 	"""
-	Returns account by its ID
+	Returns the account that is making the call (authorized subject)
+	"""
+	me: Account!
+	"""
+	Returns an account by its ID, if found
 	"""
 	byId(accountId: AccountID!): Account
 	"""
-	Returns account by its name
+	Returns accounts by their IDs.
+
+	Order of results is guaranteed to match the inputs. Duplicate inputs
+	will results in duplicate results.
+	"""
+	byIds(		accountIds: [AccountID!]!,
+		"""
+		Whether to skip unresolved accounts or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [Account!]!
+	"""
+	Returns an account by its name, if found
 	"""
 	byName(name: AccountName!): Account
+	"""
+	Returns accounts by their names
+	"""
+	byNames(		accountNames: [AccountName!]!,
+		"""
+		Whether to skip unresolved accounts or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [Account!]!
 }
 
 type AccountsMut {
+	"""
+	Returns the mutable account that is making the call (authorized subject)
+	"""
+	me: AccountMut!
 	"""
 	Returns a mutable account by its id
 	"""
 	byId(accountId: AccountID!): AccountMut
 	"""
+	Returns mutable accounts by their IDs.
+
+	Order of results is guaranteed to match the inputs. Duplicate inputs
+	will results in duplicate results.
+	"""
+	byIds(		accountIds: [AccountID!]!,
+		"""
+		Whether to skip unresolved accounts or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [AccountMut!]!
+	"""
 	Returns a mutable account by its name
 	"""
 	byName(accountName: AccountName!): AccountMut
+	"""
+	Returns accounts by their names
+	"""
+	byNames(		accountNames: [AccountName!]!,
+		"""
+		Whether to skip unresolved accounts or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [AccountMut!]!
 	"""
 	Create a new account
 	"""
@@ -298,6 +435,10 @@ type AddData {
 	when resuming.
 	"""
 	newSourceState: SourceState
+	"""
+	ODF extensions.
+	"""
+	extra: ExtraAttributes
 }
 
 """
@@ -328,6 +469,14 @@ type AddPushSource {
 
 type Admin {
 	selfTest: String!
+}
+
+type AdminMut {
+	search: AdminSearchMut!
+}
+
+type AdminSearchMut {
+	resetSearchIndices: String!
 }
 
 type ApplyRolesMatrixResult {
@@ -371,6 +520,7 @@ type AttachmentsEmbedded {
 
 type Auth {
 	enabledProviders: [AccountProvider!]!
+	relations(accountIds: [AccountID!]!, page: Int, perPage: Int): AuthRelationConnection!
 }
 
 type AuthMut {
@@ -382,6 +532,32 @@ type AuthMut {
 	accountDetails(accessToken: String!): Account!
 }
 
+type AuthRelation {
+	account: Account!
+	role: DatasetAccessRole!
+	dataset: Dataset!
+}
+
+type AuthRelationConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [AuthRelation!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [AuthRelationEdge!]!
+}
+
+type AuthRelationEdge {
+	node: AuthRelation!
+}
+
 type AuthWeb3Mut {
 	eip4361AuthNonce(account: EvmWalletAddress!): Eip4361AuthNonceResponse!
 }
@@ -391,10 +567,10 @@ Base64-encoded binary data (url-safe, no padding)
 """
 scalar Base64Usnp
 
-input BatchingInput {
-	minRecordsToAwait: Int!
-	maxBatchingInterval: TimeDeltaInput!
-}
+"""
+A big integer scalar type.
+"""
+scalar BigInt
 
 type BlockRef {
 	name: String!
@@ -417,11 +593,11 @@ type BuildInfo {
 	cargoOptLevel: String
 }
 
-interface CancelScheduledTasksResult {
+interface CancelFlowRunResult {
 	message: String!
 }
 
-type CancelScheduledTasksSuccess implements CancelScheduledTasksResult {
+type CancelFlowRunSuccess implements CancelFlowRunResult {
 	flow: Flow!
 	message: String!
 }
@@ -468,11 +644,11 @@ type Collection {
 
 type CollectionEntry {
 	"""
-	Time when this version was created
+	System time when this entry was created
 	"""
 	systemTime: DateTime!
 	"""
-	Time when this version was created
+	Event time when this entry was created
 	"""
 	eventTime: DateTime!
 	"""
@@ -549,10 +725,9 @@ type CollectionMut {
 	updateEntries(operations: [CollectionUpdateInput!]!, expectedHead: Multihash): CollectionUpdateResult!
 }
 
-"""
-Collection entry paths are similar to HTTP path components. They are rooted (start with `/`), separated by forward slashes, with elements URL-encoded (e.g. `/foo%20bar/baz`)
-"""
 scalar CollectionPath
+
+scalar CollectionPathV2
 
 type CollectionProjection {
 	"""
@@ -572,13 +747,21 @@ type CollectionProjection {
 
 type CollectionUpdateErrorCasFailed implements CollectionUpdateResult {
 	expectedHead: Multihash!
-	actualHead: Multihash!
+	actualHead: Multihash
 	isSuccess: Boolean!
 	message: String!
 }
 
 type CollectionUpdateErrorNotFound implements CollectionUpdateResult {
 	path: CollectionPath!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type CollectionUpdateErrorQuotaExceeded implements CollectionUpdateResult {
+	used: Int
+	incoming: Int
+	limit: Int
 	isSuccess: Boolean!
 	message: String!
 }
@@ -651,42 +834,20 @@ input ColumnInput {
 }
 
 interface CommitResult {
+	isSuccess: Boolean!
 	message: String!
 }
 
 type CommitResultAppendError implements CommitResult & UpdateReadmeResult {
 	message: String!
+	isSuccess: Boolean!
 }
 
 type CommitResultSuccess implements CommitResult & UpdateReadmeResult {
 	oldHead: Multihash
 	newHead: Multihash!
+	isSuccess: Boolean!
 	message: String!
-}
-
-input CompactionConditionFull {
-	maxSliceSize: Int!
-	maxSliceRecords: Int!
-	recursive: Boolean!
-}
-
-input CompactionConditionInput @oneOf {
-	full: CompactionConditionFull
-	metadataOnly: CompactionConditionMetadataOnly
-}
-
-input CompactionConditionMetadataOnly {
-	recursive: Boolean!
-}
-
-type CompactionFull {
-	maxSliceSize: Int!
-	maxSliceRecords: Int!
-	recursive: Boolean!
-}
-
-type CompactionMetadataOnly {
-	recursive: Boolean!
 }
 
 union CompareChainsResult = CompareChainsResultStatus | CompareChainsResultError
@@ -739,6 +900,30 @@ type CreateAccountSuccess implements CreateAccountResult {
 	message: String!
 }
 
+type CreateAnnouncementErrorInvalidAttachment implements CreateAnnouncementResult {
+	message: String!
+	isSuccess: Boolean!
+}
+
+type CreateAnnouncementErrorQuotaExceeded implements CreateAnnouncementResult {
+	message: String!
+	isSuccess: Boolean!
+}
+
+interface CreateAnnouncementResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type CreateAnnouncementSuccess implements CreateAnnouncementResult {
+	"""
+	ID of the newly-created announcement
+	"""
+	announcementId: String!
+	isSuccess: Boolean!
+	message: String!
+}
+
 interface CreateDatasetFromSnapshotResult {
 	isSuccess: Boolean!
 	message: String!
@@ -769,6 +954,23 @@ type CreateDatasetResultNameCollision implements CreateDatasetResult & CreateDat
 
 type CreateDatasetResultSuccess implements CreateDatasetResult & CreateDatasetFromSnapshotResult {
 	dataset: Dataset!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type CreateProjectErrorConflict implements CreateProjectResult {
+	project: MoleculeProject!
+	isSuccess: Boolean!
+	message: String!
+}
+
+interface CreateProjectResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type CreateProjectSuccess implements CreateProjectResult {
+	project: MoleculeProject!
 	isSuccess: Boolean!
 	message: String!
 }
@@ -877,9 +1079,11 @@ type DataSchema {
 }
 
 enum DataSchemaFormat {
+	ARROW_JSON
+	ODF_JSON
+	ODF_YAML
 	PARQUET
 	PARQUET_JSON
-	ARROW_JSON
 }
 
 """
@@ -981,7 +1185,7 @@ type Dataset {
 	"""
 	collaboration: DatasetCollaboration!
 	"""
-	Access to the dataset's webhooks management functionality
+	Access to the dataset's webhook management functionality
 	"""
 	webhooks: DatasetWebhooks!
 	"""
@@ -1014,6 +1218,11 @@ enum DatasetAccessRole {
 }
 
 scalar DatasetAlias
+
+enum DatasetArchetype {
+	COLLECTION
+	VERSIONED_FILE
+}
 
 type DatasetCollaboration {
 	"""
@@ -1063,7 +1272,19 @@ type DatasetData {
 	An estimated size of data on disk not accounting for replication or
 	caching
 	"""
-	estimatedSize: Int!
+	estimatedSizeBytes: Int!
+	"""
+	Total number of linked objects in this dataset
+	"""
+	numLinkedObjects: Int!
+	"""
+	An estimated size of linked objects
+	"""
+	estimatedLinkedObjectsSizeBytes: Int!
+	"""
+	An estimated size of all objects in dataset
+	"""
+	totalSizeBytes: Int!
 	"""
 	Returns the specified number of the latest records in the dataset
 	This is equivalent to SQL query like:
@@ -1124,13 +1345,45 @@ type DatasetFlowConfigs {
 }
 
 type DatasetFlowConfigsMut {
-	setConfig(datasetFlowType: DatasetFlowType!, configInput: FlowConfigurationInput!): SetFlowConfigResult!
+	setIngestConfig(ingestConfigInput: FlowConfigIngestInput!, retryPolicyInput: FlowRetryPolicyInput): SetFlowConfigResult!
+	setCompactionConfig(compactionConfigInput: FlowConfigCompactionInput!, retryPolicyInput: FlowRetryPolicyInput): SetFlowConfigResult!
 }
 
 input DatasetFlowFilters {
-	byFlowType: DatasetFlowType
-	byStatus: FlowStatus
+	byStatus: [FlowStatus!]
 	byInitiator: InitiatorFilterInput
+	byProcessType: FlowProcessTypeFilterInput
+}
+
+type DatasetFlowProcess {
+	flowType: DatasetFlowType!
+	dataset: Dataset!
+	summary: FlowProcessSummary!
+}
+
+type DatasetFlowProcessConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [DatasetFlowProcess!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [DatasetFlowProcessEdge!]!
+}
+
+type DatasetFlowProcessEdge {
+	node: DatasetFlowProcess!
+}
+
+type DatasetFlowProcesses {
+	primary: DatasetFlowProcess!
+	webhooks: WebhookFlowSubProcessGroup!
 }
 
 type DatasetFlowRuns {
@@ -1140,8 +1393,12 @@ type DatasetFlowRuns {
 }
 
 type DatasetFlowRunsMut {
-	triggerFlow(datasetFlowType: DatasetFlowType!, flowRunConfiguration: FlowRunConfiguration): TriggerFlowResult!
-	cancelScheduledTasks(flowId: FlowID!): CancelScheduledTasksResult!
+	triggerIngestFlow(ingestConfigInput: FlowConfigIngestInput): TriggerFlowResult!
+	triggerTransformFlow: TriggerFlowResult!
+	triggerCompactionFlow(compactionConfigInput: FlowConfigCompactionInput): TriggerFlowResult!
+	triggerResetFlow(resetConfigInput: FlowConfigResetInput): TriggerFlowResult!
+	triggerResetToMetadataFlow: TriggerFlowResult!
+	cancelFlowRun(flowId: FlowID!): CancelFlowRunResult!
 }
 
 type DatasetFlowTriggers {
@@ -1149,16 +1406,14 @@ type DatasetFlowTriggers {
 	Returns defined trigger for a flow of specified type
 	"""
 	byType(datasetFlowType: DatasetFlowType!): FlowTrigger
-	"""
-	Checks if all triggers of this dataset are disabled
-	"""
-	allPaused: Boolean!
 }
 
 type DatasetFlowTriggersMut {
-	setTrigger(datasetFlowType: DatasetFlowType!, paused: Boolean!, triggerInput: FlowTriggerInput!): SetFlowTriggerResult!
-	pauseFlows(datasetFlowType: DatasetFlowType): Boolean!
-	resumeFlows(datasetFlowType: DatasetFlowType): Boolean!
+	setTrigger(datasetFlowType: DatasetFlowType!, triggerRuleInput: FlowTriggerRuleInput!, triggerStopPolicyInput: FlowTriggerStopPolicyInput!): SetFlowTriggerResult!
+	pauseFlow(datasetFlowType: DatasetFlowType!): Boolean!
+	pauseFlows: Boolean!
+	resumeFlow(datasetFlowType: DatasetFlowType!): Boolean!
+	resumeFlows: Boolean!
 }
 
 enum DatasetFlowType {
@@ -1166,6 +1421,7 @@ enum DatasetFlowType {
 	EXECUTE_TRANSFORM
 	HARD_COMPACTION
 	RESET
+	RESET_TO_METADATA
 }
 
 type DatasetFlows {
@@ -1181,6 +1437,10 @@ type DatasetFlows {
 	Returns interface for flow runs queries
 	"""
 	runs: DatasetFlowRuns!
+	"""
+	Returns interface for flow processes queries
+	"""
+	processes: DatasetFlowProcesses!
 }
 
 type DatasetFlowsMut {
@@ -1266,6 +1526,12 @@ type DatasetMetadata {
 	Current vocabulary associated with the dataset
 	"""
 	currentVocab: SetVocab
+	metadataProjection(eventTypes: [MetadataEventType!]!, head: Multihash): [MetadataBlockExtended!]!
+	"""
+	Experimental: Current archetype as per `kamu.dev/archetype` annotation,
+	if any
+	"""
+	currentArchetype: DatasetArchetype
 }
 
 type DatasetMetadataMut {
@@ -1284,6 +1550,10 @@ type DatasetMetadataPermissions {
 }
 
 type DatasetMut {
+	"""
+	Convert to read-only accessor to a dataset
+	"""
+	dataset: Dataset!
 	"""
 	Access to the mutable metadata of the dataset
 	"""
@@ -1421,9 +1691,35 @@ type DatasetWebhooksPermissions {
 
 type Datasets {
 	"""
-	Returns dataset by its ID
+	Returns a dataset by its ID, if found
 	"""
 	byId(datasetId: DatasetID!): Dataset
+	"""
+	Returns multiple datasets by their IDs.
+
+	Order of results is guaranteed to match the inputs. Duplicate inputs
+	will results in duplicate results.
+	"""
+	byIds(		datasetIds: [DatasetID!]!,
+		"""
+		Whether to skip unresolved datasets or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [Dataset!]!
+	"""
+	Returns a dataset by an ID or alias, if found
+	"""
+	byRef(datasetRef: DatasetRef!): Dataset
+	"""
+	Returns multiple datasets by their IDs or aliases. Order of results is
+	guaranteed to match the inputs.
+	"""
+	byRefs(		datasetRefs: [DatasetRef!]!,
+		"""
+		Whether to skip unresolved datasets or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [Dataset!]!
 	"""
 	Returns dataset by its owner and name
 	"""
@@ -1440,15 +1736,27 @@ type Datasets {
 
 type DatasetsMut {
 	"""
-	Returns a mutable dataset by its ID
+	Returns a mutable dataset by its ID, if found
 	"""
 	byId(datasetId: DatasetID!): DatasetMut
+	"""
+	Returns mutable datasets by their IDs.
+
+	Order of results is guaranteed to match the inputs. Duplicate inputs
+	will results in duplicate results.
+	"""
+	byIds(		datasetIds: [DatasetID!]!,
+		"""
+		Whether to skip unresolved datasets or return an error if one or more are missing
+		"""
+		skipMissing: Boolean!
+	): [DatasetMut!]!
 	"""
 	Creates a new empty dataset
 	"""
 	createEmpty(datasetKind: DatasetKind!, datasetAlias: DatasetAlias!, datasetVisibility: DatasetVisibility!): CreateDatasetResult!
 	"""
-	Creates a new dataset from provided DatasetSnapshot manifest
+	Creates a new dataset from provided snapshot manifest
 	"""
 	createFromSnapshot(snapshot: String!, snapshotFormat: MetadataManifestFormat!, datasetVisibility: DatasetVisibility!): CreateDatasetFromSnapshotResult!
 	"""
@@ -1602,6 +1910,11 @@ type Eip4361AuthNonceResponse {
 }
 
 scalar Email
+
+type EncodedBlock {
+	encoding: MetadataManifestFormat!
+	content: String!
+}
 
 type EngineDesc {
 	"""
@@ -1765,6 +2078,8 @@ type ExecuteTransformInput {
 	newOffset: Int
 }
 
+scalar ExtraAttributes
+
 scalar ExtraData
 
 """
@@ -1921,6 +2236,10 @@ type Flow {
 	"""
 	flowId: FlowID!
 	"""
+	Associated dataset ID, if any
+	"""
+	datasetId: DatasetID
+	"""
 	Description of key flow parameters
 	"""
 	description: FlowDescription!
@@ -1937,9 +2256,9 @@ type Flow {
 	"""
 	timing: FlowTimingRecords!
 	"""
-	Associated tasks
+	IDs of associated tasks
 	"""
-	tasks: [Task!]!
+	taskIds: [TaskID!]!
 	"""
 	History of flow events
 	"""
@@ -1949,9 +2268,9 @@ type Flow {
 	"""
 	initiator: Account
 	"""
-	Primary flow trigger
+	Primary flow activation cause
 	"""
-	primaryTrigger: FlowTriggerInstance!
+	primaryActivationCause: FlowActivationCause!
 	"""
 	Start condition
 	"""
@@ -1959,55 +2278,131 @@ type Flow {
 	"""
 	Flow config snapshot
 	"""
-	configSnapshot: FlowConfigurationSnapshot
+	configSnapshot: FlowConfigRule
+	"""
+	Flow retry policy
+	"""
+	retryPolicy: FlowRetryPolicy
+	"""
+	Associated flow trigger
+	"""
+	relatedTrigger: FlowTrigger
 }
 
 type FlowAbortedResult {
 	message: String!
 }
 
-type FlowConfigSnapshotModified implements FlowEvent {
-	eventId: EventID!
-	eventTime: DateTime!
-	configSnapshot: FlowConfigurationSnapshot!
+union FlowActivationCause = FlowActivationCauseManual | FlowActivationCauseAutoPolling | FlowActivationCauseDatasetUpdate | FlowActivationCauseIterationFinished
+
+type FlowActivationCauseAutoPolling {
+	dummy: Boolean!
 }
 
-type FlowConfiguration {
-	compaction: FlowConfigurationCompaction
-	ingest: FlowConfigurationIngest
-	reset: FlowConfigurationReset
+type FlowActivationCauseDatasetUpdate {
+	dataset: Dataset!
+	source: FlowActivationCauseDatasetUpdateSource!
 }
 
-union FlowConfigurationCompaction = CompactionFull | CompactionMetadataOnly
+union FlowActivationCauseDatasetUpdateSource = FlowActivationCauseDatasetUpdateSourceUpstreamFlow | FlowActivationCauseDatasetUpdateSourceHttpIngest | FlowActivationCauseDatasetUpdateSourceSmartProtocolPush | FlowActivationCauseDatasetUpdateSourceExternallyDetectedChange
 
-type FlowConfigurationCompactionRule {
-	compactionRule: FlowConfigurationCompaction!
+type FlowActivationCauseDatasetUpdateSourceExternallyDetectedChange {
+	dummy: Boolean!
 }
 
-type FlowConfigurationIngest {
+type FlowActivationCauseDatasetUpdateSourceHttpIngest {
+	sourceName: String
+}
+
+type FlowActivationCauseDatasetUpdateSourceSmartProtocolPush {
+	accountName: AccountName
+	isForce: Boolean!
+}
+
+type FlowActivationCauseDatasetUpdateSourceUpstreamFlow {
+	flowId: FlowID!
+}
+
+type FlowActivationCauseIterationFinished {
+	dummy: Boolean!
+}
+
+type FlowActivationCauseManual {
+	initiator: Account!
+}
+
+input FlowConfigCompactionInput {
+	maxSliceSize: Int!
+	maxSliceRecords: Int!
+}
+
+input FlowConfigIngestInput {
+	"""
+	Flag indicates to ignore cache during ingest step for API calls
+	"""
 	fetchUncacheable: Boolean!
+	"""
+	Flag indicates to trigger next flow iteration right if `has_more` is
+	true
+	"""
+	fetchNextIteration: Boolean!
 }
 
-input FlowConfigurationInput @oneOf {
-	ingest: IngestConditionInput
-	compaction: CompactionConditionInput
+input FlowConfigInputResetPropagationMode @oneOf {
+	custom: FlowConfigInputResetPropagationModeCustom
+	toSeed: FlowConfigInputResetPropagationModeToSeed
 }
 
-type FlowConfigurationReset {
-	mode: SnapshotPropagationMode!
-	oldHeadHash: Multihash
-	recursive: Boolean!
-}
-
-input FlowConfigurationResetCustom {
+input FlowConfigInputResetPropagationModeCustom {
 	newHeadHash: Multihash!
 }
 
-input FlowConfigurationResetToSeedDummy {
+input FlowConfigInputResetPropagationModeToSeed {
 	dummy: String
 }
 
-union FlowConfigurationSnapshot = FlowConfigurationCompactionRule | FlowConfigurationIngest | FlowConfigurationReset
+input FlowConfigResetInput {
+	mode: FlowConfigInputResetPropagationMode!
+	oldHeadHash: Multihash
+}
+
+union FlowConfigResetPropagationMode = FlowConfigResetPropagationModeCustom | FlowConfigResetPropagationModeToSeed
+
+type FlowConfigResetPropagationModeCustom {
+	newHeadHash: Multihash!
+}
+
+type FlowConfigResetPropagationModeToSeed {
+	dummy: String
+}
+
+union FlowConfigRule = FlowConfigRuleIngest | FlowConfigRuleCompaction | FlowConfigRuleReset
+
+type FlowConfigRuleCompaction {
+	maxSliceSize: Int!
+	maxSliceRecords: Int!
+}
+
+type FlowConfigRuleIngest {
+	fetchUncacheable: Boolean!
+	fetchNextIteration: Boolean!
+}
+
+type FlowConfigRuleReset {
+	mode: FlowConfigResetPropagationMode!
+	oldHeadHash: Multihash
+}
+
+type FlowConfigSnapshotModified implements FlowEvent {
+	eventId: EventID!
+	eventTime: DateTime!
+	configSnapshot: FlowConfigRule!
+}
+
+type FlowConfiguration {
+	rule: FlowConfigRule!
+	retryPolicy: FlowRetryPolicy
+}
 
 type FlowConnection {
 	"""
@@ -2025,44 +2420,44 @@ type FlowConnection {
 	edges: [FlowEdge!]!
 }
 
-union FlowDescription = FlowDescriptionDatasetPollingIngest | FlowDescriptionDatasetPushIngest | FlowDescriptionDatasetExecuteTransform | FlowDescriptionDatasetHardCompaction | FlowDescriptionDatasetReset | FlowDescriptionSystemGC
+union FlowDescription = FlowDescriptionUnknown | FlowDescriptionDatasetPollingIngest | FlowDescriptionDatasetPushIngest | FlowDescriptionDatasetExecuteTransform | FlowDescriptionDatasetHardCompaction | FlowDescriptionDatasetReset | FlowDescriptionDatasetResetToMetadata | FlowDescriptionSystemGC | FlowDescriptionWebhookDeliver
 
 type FlowDescriptionDatasetExecuteTransform {
-	datasetId: DatasetID!
 	transformResult: FlowDescriptionUpdateResult
+	transform: SetTransform!
 }
 
 type FlowDescriptionDatasetHardCompaction {
-	datasetId: DatasetID!
-	compactionResult: FlowDescriptionDatasetHardCompactionResult
+	compactionResult: FlowDescriptionDatasetReorganizationResult
 }
 
-union FlowDescriptionDatasetHardCompactionResult = FlowDescriptionHardCompactionNothingToDo | FlowDescriptionHardCompactionSuccess
-
 type FlowDescriptionDatasetPollingIngest {
-	datasetId: DatasetID!
 	ingestResult: FlowDescriptionUpdateResult
+	pollingSource: SetPollingSource!
 }
 
 type FlowDescriptionDatasetPushIngest {
-	datasetId: DatasetID!
 	sourceName: String
-	inputRecordsCount: Int!
 	ingestResult: FlowDescriptionUpdateResult
 	message: String!
 }
 
+union FlowDescriptionDatasetReorganizationResult = FlowDescriptionReorganizationNothingToDo | FlowDescriptionReorganizationSuccess
+
 type FlowDescriptionDatasetReset {
-	datasetId: DatasetID!
 	resetResult: FlowDescriptionResetResult
 }
 
-type FlowDescriptionHardCompactionNothingToDo {
+type FlowDescriptionDatasetResetToMetadata {
+	resetToMetadataResult: FlowDescriptionDatasetReorganizationResult
+}
+
+type FlowDescriptionReorganizationNothingToDo {
 	dummy: String
 	message: String!
 }
 
-type FlowDescriptionHardCompactionSuccess {
+type FlowDescriptionReorganizationSuccess {
 	originalBlocksCount: Int!
 	resultingBlocksCount: Int!
 	newHead: Multihash!
@@ -2076,12 +2471,17 @@ type FlowDescriptionSystemGC {
 	dummy: Boolean!
 }
 
+type FlowDescriptionUnknown {
+	message: String!
+}
+
 union FlowDescriptionUpdateResult = FlowDescriptionUpdateResultUpToDate | FlowDescriptionUpdateResultSuccess | FlowDescriptionUpdateResultUnknown
 
 type FlowDescriptionUpdateResultSuccess {
 	numBlocks: Int!
 	numRecords: Int!
 	updatedWatermark: DateTime
+	hasMore: Boolean!
 }
 
 type FlowDescriptionUpdateResultUnknown {
@@ -2093,6 +2493,12 @@ type FlowDescriptionUpdateResultUpToDate {
 	The value indicates whether the api cache was used
 	"""
 	uncacheable: Boolean!
+}
+
+type FlowDescriptionWebhookDeliver {
+	targetUrl: Url!
+	label: String!
+	eventType: String!
 }
 
 type FlowEdge {
@@ -2109,10 +2515,21 @@ type FlowEventAborted implements FlowEvent {
 	eventTime: DateTime!
 }
 
+type FlowEventActivationCauseAdded implements FlowEvent {
+	eventId: EventID!
+	eventTime: DateTime!
+	activationCause: FlowActivationCause!
+}
+
+type FlowEventCompleted implements FlowEvent {
+	eventId: EventID!
+	eventTime: DateTime!
+}
+
 type FlowEventInitiated implements FlowEvent {
 	eventId: EventID!
 	eventTime: DateTime!
-	trigger: FlowTriggerInstance!
+	activationCause: FlowActivationCause!
 }
 
 type FlowEventScheduledForActivation implements FlowEvent {
@@ -2132,28 +2549,12 @@ type FlowEventTaskChanged implements FlowEvent {
 	eventTime: DateTime!
 	taskId: TaskID!
 	taskStatus: TaskStatus!
+	nextAttemptAt: DateTime
 	task: Task!
 }
 
-type FlowEventTriggerAdded implements FlowEvent {
-	eventId: EventID!
-	eventTime: DateTime!
-	trigger: FlowTriggerInstance!
-}
-
 type FlowFailedError {
-	reason: FlowFailureReason!
-}
-
-union FlowFailureReason = FlowFailureReasonGeneral | FlowFailureReasonInputDatasetCompacted
-
-type FlowFailureReasonGeneral {
-	message: String!
-}
-
-type FlowFailureReasonInputDatasetCompacted {
-	inputDataset: Dataset!
-	message: String!
+	reason: TaskFailureReason!
 }
 
 scalar FlowID
@@ -2179,7 +2580,12 @@ type FlowInvalidTriggerInputError implements SetFlowTriggerResult {
 	message: String!
 }
 
-type FlowNotFound implements GetFlowResult & CancelScheduledTasksResult {
+type FlowInvalidTriggerStopPolicyInputError implements SetFlowTriggerResult {
+	reason: String!
+	message: String!
+}
+
+type FlowNotFound implements GetFlowResult & CancelFlowRunResult {
 	flowId: FlowID!
 	message: String!
 }
@@ -2191,23 +2597,149 @@ type FlowPreconditionsNotMet implements SetFlowConfigResult & TriggerFlowResult 
 	message: String!
 }
 
-input FlowRunConfiguration @oneOf {
-	compaction: CompactionConditionInput
-	ingest: IngestConditionInput
-	reset: ResetConditionInput
+enum FlowProcessAutoStopReason {
+	STOP_POLICY
+	UNRECOVERABLE_FAILURE
 }
 
-union FlowStartCondition = FlowStartConditionSchedule | FlowStartConditionThrottling | FlowStartConditionBatching | FlowStartConditionExecutor
+enum FlowProcessEffectiveState {
+	UNCONFIGURED
+	ACTIVE
+	FAILING
+	PAUSED_MANUAL
+	STOPPED_AUTO
+}
 
-type FlowStartConditionBatching {
+input FlowProcessFilters {
+	"""
+	State filter
+	"""
+	effectiveStateIn: [FlowProcessEffectiveState!]
+	"""
+	All processes with last attempt between these times, inclusive
+	"""
+	lastAttemptBetween: FlowProcessFiltersTimeRange
+	"""
+	All processes with last failure since this time, inclusive
+	"""
+	lastFailureSince: DateTime
+	"""
+	All processes with next planned before this time, inclusive
+	"""
+	nextPlannedBefore: DateTime
+	"""
+	All processes with next planned after this time, inclusive
+	"""
+	nextPlannedAfter: DateTime
+	"""
+	Minimum number of consecutive failures
+	"""
+	minConsecutiveFailures: Int
+}
+
+input FlowProcessFiltersTimeRange {
+	start: DateTime!
+	end: DateTime!
+}
+
+type FlowProcessGroupRollup {
+	total: Int!
+	active: Int!
+	failing: Int!
+	paused: Int!
+	unconfigured: Int!
+	stopped: Int!
+	worstConsecutiveFailures: Int!
+}
+
+enum FlowProcessOrderField {
+	"""
+	Default for “recent activity”.
+	"""
+	LAST_ATTEMPT_AT
+	"""
+	“What’s next”
+	"""
+	NEXT_PLANNED_AT
+	"""
+	Triage hot spots.
+	"""
+	LAST_FAILURE_AT
+	"""
+	Chronic issues first.
+	"""
+	CONSECUTIVE_FAILURES
+	"""
+	Severity bucketing
+	"""
+	EFFECTIVE_STATE
+	"""
+	By flow type
+	"""
+	FLOW_TYPE
+}
+
+input FlowProcessOrdering {
+	field: FlowProcessOrderField!
+	direction: OrderingDirection!
+}
+
+type FlowProcessSummary {
+	effectiveState: FlowProcessEffectiveState!
+	consecutiveFailures: Int!
+	stopPolicy: FlowTriggerStopPolicy!
+	lastSuccessAt: DateTime
+	lastAttemptAt: DateTime
+	lastFailureAt: DateTime
+	nextPlannedAt: DateTime
+	autoStoppedReason: FlowProcessAutoStopReason
+	autoStoppedAt: DateTime
+}
+
+input FlowProcessTypeFilterInput @oneOf {
+	primary: FlowProcessTypePrimaryFilterInput
+	webhooks: FlowProcessTypeWebhooksFilterInput
+}
+
+input FlowProcessTypePrimaryFilterInput {
+	byFlowTypes: [DatasetFlowType!]
+}
+
+input FlowProcessTypeWebhooksFilterInput {
+	subscriptionIds: [WebhookSubscriptionID!]
+}
+
+enum FlowRetryBackoffType {
+	FIXED
+	LINEAR
+	EXPONENTIAL
+	EXPONENTIAL_WITH_JITTER
+}
+
+type FlowRetryPolicy {
+	maxAttempts: Int!
+	minDelay: TimeDelta!
+	backoffType: FlowRetryBackoffType!
+}
+
+input FlowRetryPolicyInput {
+	maxAttempts: Int!
+	minDelay: TimeDeltaInput!
+	backoffType: FlowRetryBackoffType!
+}
+
+union FlowStartCondition = FlowStartConditionSchedule | FlowStartConditionThrottling | FlowStartConditionReactive | FlowStartConditionExecutor
+
+type FlowStartConditionExecutor {
+	taskId: TaskID!
+}
+
+type FlowStartConditionReactive {
 	activeBatchingRule: FlowTriggerBatchingRule!
 	batchingDeadline: DateTime!
 	accumulatedRecordsCount: Int!
 	watermarkModified: Boolean!
-}
-
-type FlowStartConditionExecutor {
-	taskId: TaskID!
+	forBreakingChange: FlowTriggerBreakingChangeRule!
 }
 
 type FlowStartConditionSchedule {
@@ -2223,6 +2755,7 @@ type FlowStartConditionThrottling {
 enum FlowStatus {
 	WAITING
 	RUNNING
+	RETRYING
 	FINISHED
 }
 
@@ -2232,6 +2765,18 @@ type FlowSuccessResult {
 
 type FlowTimingRecords {
 	"""
+	Initiation time
+	"""
+	initiatedAt: DateTime!
+	"""
+	First scheduling time
+	"""
+	firstAttemptScheduledAt: DateTime
+	"""
+	Planned scheduling time (different than first in case of retries)
+	"""
+	scheduledAt: DateTime
+	"""
 	Recorded time of last task scheduling
 	"""
 	awaitingExecutorSince: DateTime
@@ -2240,52 +2785,122 @@ type FlowTimingRecords {
 	"""
 	runningSince: DateTime
 	"""
-	Recorded time of finish (successful or failed after retry) or abortion
-	(Finished state seen at least once)
+	Recorded time of finish of the latest task
 	"""
-	finishedAt: DateTime
+	lastAttemptFinishedAt: DateTime
+	"""
+	Recorded time of flow completion (success or failure)
+	"""
+	completedAt: DateTime
 }
 
 type FlowTrigger {
 	paused: Boolean!
 	schedule: FlowTriggerScheduleRule
-	batching: FlowTriggerBatchingRule
+	reactive: FlowTriggerReactiveRule
+	stopPolicy: FlowTriggerStopPolicy!
 }
 
-type FlowTriggerAutoPolling {
-	dummy: Boolean!
-}
+union FlowTriggerBatchingRule = FlowTriggerBatchingRuleImmediate | FlowTriggerBatchingRuleBuffering
 
-type FlowTriggerBatchingRule {
+type FlowTriggerBatchingRuleBuffering {
 	minRecordsToAwait: Int!
 	maxBatchingInterval: TimeDelta!
 }
 
-input FlowTriggerInput @oneOf {
-	schedule: ScheduleInput
-	batching: BatchingInput
+input FlowTriggerBatchingRuleBufferingInput {
+	minRecordsToAwait: Int!
+	maxBatchingInterval: TimeDeltaInput!
 }
 
-type FlowTriggerInputDatasetFlow {
-	dataset: Dataset!
-	flowType: DatasetFlowType!
-	flowId: FlowID!
-}
-
-union FlowTriggerInstance = FlowTriggerManual | FlowTriggerAutoPolling | FlowTriggerPush | FlowTriggerInputDatasetFlow
-
-type FlowTriggerManual {
-	initiator: Account!
-}
-
-type FlowTriggerPush {
+type FlowTriggerBatchingRuleImmediate {
 	dummy: Boolean!
+}
+
+input FlowTriggerBatchingRuleImmediateInput {
+	dummy: Boolean!
+}
+
+input FlowTriggerBatchingRuleInput @oneOf {
+	immediate: FlowTriggerBatchingRuleImmediateInput
+	buffering: FlowTriggerBatchingRuleBufferingInput
+}
+
+enum FlowTriggerBreakingChangeRule {
+	NO_ACTION
+	RECOVER
+}
+
+type FlowTriggerReactiveRule {
+	forNewData: FlowTriggerBatchingRule!
+	forBreakingChange: FlowTriggerBreakingChangeRule!
+}
+
+input FlowTriggerRuleInput @oneOf {
+	schedule: FlowTriggerRuleScheduleInput
+	reactive: FlowTriggerRuleReactiveInput
+}
+
+input FlowTriggerRuleReactiveInput {
+	forNewData: FlowTriggerBatchingRuleInput!
+	forBreakingChange: FlowTriggerBreakingChangeRule!
+}
+
+input FlowTriggerRuleScheduleInput @oneOf {
+	timeDelta: TimeDeltaInput
+	"""
+	Supported CRON syntax: min hour dayOfMonth month dayOfWeek
+	"""
+	cron5ComponentExpression: String
 }
 
 union FlowTriggerScheduleRule = TimeDelta | Cron5ComponentExpression
 
-type FlowTypeIsNotSupported implements SetFlowConfigResult & SetFlowTriggerResult {
+union FlowTriggerStopPolicy = FlowTriggerStopPolicyNever | FlowTriggerStopPolicyAfterConsecutiveFailures
+
+type FlowTriggerStopPolicyAfterConsecutiveFailures {
+	maxFailures: Int!
+}
+
+input FlowTriggerStopPolicyAfterConsecutiveFailuresInput {
+	maxFailures: Int!
+}
+
+input FlowTriggerStopPolicyInput @oneOf {
+	never: FlowTriggerStopPolicyNeverInput
+	afterConsecutiveFailures: FlowTriggerStopPolicyAfterConsecutiveFailuresInput
+}
+
+type FlowTriggerStopPolicyNever {
+	dummy: Boolean!
+}
+
+input FlowTriggerStopPolicyNeverInput {
+	dummy: Boolean!
+}
+
+type FlowTypeIsNotSupported implements SetFlowTriggerResult {
 	message: String!
+}
+
+type FullTextSearchHighlight {
+	field: String!
+	bestFragment: String!
+}
+
+type FullTextSearchHit {
+	id: String!
+	schemaName: String!
+	score: Float
+	source: JSON!
+	highlights: [FullTextSearchHighlight!]
+}
+
+type FullTextSearchResponse {
+	tookMs: Int!
+	timeout: Boolean!
+	totalHits: Int!
+	hits: [FullTextSearchHit!]!
 }
 
 interface GetFlowResult {
@@ -2297,17 +2912,15 @@ type GetFlowSuccess implements GetFlowResult {
 	message: String!
 }
 
-input IngestConditionInput {
-	"""
-	Flag indicates to ignore cache during ingest step for API calls
-	"""
-	fetchUncacheable: Boolean!
-}
-
 input InitiatorFilterInput @oneOf {
 	system: Boolean
 	accounts: [AccountID!]
 }
+
+"""
+A scalar that can represent any JSON value.
+"""
+scalar JSON
 
 type JdbcDesc {
 	url: String!
@@ -2484,6 +3097,7 @@ type MetadataBlockExtended {
 	author: Account!
 	event: MetadataEvent!
 	sequenceNumber: Int!
+	encoded(encoding: MetadataManifestFormat!): EncodedBlock
 }
 
 type MetadataChain {
@@ -2520,6 +3134,18 @@ See: https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.
 """
 union MetadataEvent = AddData | ExecuteTransform | Seed | SetPollingSource | SetTransform | SetVocab | SetAttachments | SetInfo | SetLicense | SetDataSchema | AddPushSource | DisablePushSource | DisablePollingSource
 
+enum MetadataEventType {
+	SEED
+	SET_POLLING_SOURCE
+	SET_VOCAB
+	SET_ATTACHMENTS
+	SET_INFO
+	SET_LICENSE
+	SET_DATA_SCHEMA
+	SET_TRANSFORM
+	ADD_PUSH_SOURCE
+}
+
 enum MetadataManifestFormat {
 	YAML
 }
@@ -2544,6 +3170,770 @@ type ModifyPasswordSuccess implements ModifyPasswordResult {
 
 type ModifyPasswordWrongOldPassword implements ModifyPasswordResult {
 	message: String!
+}
+
+type Molecule {
+	"""
+	Looks up the project.
+
+	Shortcut for `v1 { project }`.
+	"""
+	project(ipnftUid: String!): MoleculeProject @deprecated(reason: "Use `v2 { project }` instead")
+	"""
+	List the registered projects.
+
+	Shortcut for `v1 { projects }`.
+	"""
+	projects(page: Int, perPage: Int): MoleculeProjectConnection! @deprecated(reason: "Use `v2 { projects }` instead")
+	"""
+	Latest activity events across all projects in reverse chronological
+	order.
+
+	Shortcut for `v1 { activity }`.
+	"""
+	activity(page: Int, perPage: Int): MoleculeProjectEventConnection! @deprecated(reason: "Use `v2 { activity }` instead")
+	"""
+	1-st Molecule API version (query).
+	"""
+	v1: MoleculeV1! @deprecated(reason: "Use `v2` instead")
+	"""
+	2-nd Molecule API version (query).
+	"""
+	v2: MoleculeV2!
+}
+
+input MoleculeAccessLevelRuleInput {
+	ipnftUid: String!
+	accessLevels: [String!]!
+}
+
+type MoleculeActivityAnnouncementV2 {
+	announcement: MoleculeAnnouncementEntry!
+}
+
+union MoleculeActivityEventV2 = MoleculeActivityFileAddedV2 | MoleculeActivityFileUpdatedV2 | MoleculeActivityFileRemovedV2 | MoleculeActivityAnnouncementV2
+
+type MoleculeActivityEventV2Connection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeActivityEventV2!]!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeActivityEventV2Edge!]!
+}
+
+type MoleculeActivityEventV2Edge {
+	node: MoleculeActivityEventV2!
+}
+
+type MoleculeActivityFileAddedV2 {
+	entry: MoleculeDataRoomEntry!
+}
+
+type MoleculeActivityFileRemovedV2 {
+	entry: MoleculeDataRoomEntry!
+}
+
+type MoleculeActivityFileUpdatedV2 {
+	entry: MoleculeDataRoomEntry!
+}
+
+enum MoleculeActivityKindInput {
+	FILE
+	ANNOUNCEMENT
+}
+
+type MoleculeAnnouncementEntry {
+	project: MoleculeProjectV2!
+	systemTime: DateTime!
+	eventTime: DateTime!
+	id: String!
+	headline: String!
+	body: String!
+	attachments: [MoleculeDataRoomEntry!]!
+	accessLevel: String!
+	changeBy: String!
+	categories: [String!]!
+	tags: [String!]!
+}
+
+type MoleculeAnnouncementEntryConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeAnnouncementEntry!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeAnnouncementEntryEdge!]!
+}
+
+type MoleculeAnnouncementEntryEdge {
+	node: MoleculeAnnouncementEntry!
+}
+
+type MoleculeAnnouncements {
+	"""
+	Access the underlying core Dataset
+	"""
+	dataset: Dataset!
+	tail(page: Int, perPage: Int, filters: MoleculeAnnouncementsFilters): MoleculeAnnouncementEntryConnection!
+	byId(id: String!): MoleculeAnnouncementEntry
+}
+
+type MoleculeAnnouncementsDatasetMutV2 {
+	"""
+	Creates an announcement record for the project.
+	"""
+	create(		headline: String!,		body: String!,
+		"""
+		List of dataset DIDs to link
+		"""
+		attachments: [DatasetID!],		accessLevel: String!,		changeBy: String!,		categories: [String!]!,		tags: [String!]!
+	): CreateAnnouncementResult!
+}
+
+input MoleculeAnnouncementsFilters {
+	byTags: [String!]
+	byCategories: [String!]
+	byAccessLevels: [String!]
+	byAccessLevelRules: [MoleculeAccessLevelRuleInput!]
+}
+
+type MoleculeDataRoom {
+	"""
+	Access the underlying core Dataset
+	"""
+	dataset: Dataset!
+	latest: MoleculeDataRoomProjection!
+	asOf(blockHash: Multihash!): MoleculeDataRoomProjection!
+}
+
+input MoleculeDataRoomEntriesFilters {
+	byTags: [String!]
+	byCategories: [String!]
+	byAccessLevels: [String!]
+	byAccessLevelRules: [MoleculeAccessLevelRuleInput!]
+}
+
+type MoleculeDataRoomEntry {
+	"""
+	Backlink to the project
+	"""
+	project: MoleculeProjectV2!
+	"""
+	Access the linked core Dataset
+	"""
+	asDataset: Dataset
+	systemTime: DateTime!
+	eventTime: DateTime!
+	path: CollectionPathV2!
+	ref: DatasetID!
+	changeBy: String!
+	accessLevel: String!
+	asVersionedFile: MoleculeVersionedFile!
+}
+
+type MoleculeDataRoomEntryConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeDataRoomEntry!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeDataRoomEntryEdge!]!
+}
+
+type MoleculeDataRoomEntryEdge {
+	node: MoleculeDataRoomEntry!
+}
+
+interface MoleculeDataRoomFinishUploadFileResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomFinishUploadFileResultSuccess implements MoleculeDataRoomFinishUploadFileResult {
+	entry: MoleculeDataRoomEntry!
+	isSuccess: Boolean!
+	message: String!
+}
+
+interface MoleculeDataRoomMoveEntryResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomMutV2 {
+	"""
+	Allows creating a file, upload a new version, and link a file into the
+	data room via a single transaction. Uploads a new version of content
+	in-band, so should be used only for very small files.
+	"""
+	uploadFile(
+		"""
+		Base64-encoded file content (url-safe, no padding)
+		"""
+		content: Base64Usnp!,		ref: DatasetID,		path: CollectionPathV2,
+		"""
+		Media type of content (e.g. application/pdf)
+		"""
+		contentType: String,		accessLevel: String!,		changeBy: String!,		description: String,		categories: [String!],		tags: [String!],		contentText: String,		encryptionMetadata: MoleculeEncryptionMetadataInput
+	): MoleculeDataRoomFinishUploadFileResult!
+	"""
+	Starts the process of uploading a file to the data room.
+	"""
+	startUploadFile(
+		"""
+		Size of the file being uploaded
+		"""
+		contentLength: Int!,
+		"""
+		Media type of content (e.g. application/pdf)
+		"""
+		contentType: String
+	): StartUploadVersionResult!
+	"""
+	Allows creating a file, upload a new version, and link a file into the
+	data room via a single transaction.
+	"""
+	finishUploadFile(uploadToken: String!, ref: DatasetID, path: CollectionPathV2, accessLevel: String!, changeBy: String!, description: String, categories: [String!], tags: [String!], contentText: String, encryptionMetadata: MoleculeEncryptionMetadataInput): MoleculeDataRoomFinishUploadFileResult!
+	"""
+	Moves an entry in the data room.
+	"""
+	moveEntry(fromPath: CollectionPathV2!, toPath: CollectionPathV2!, changeBy: String!, expectedHead: Multihash): MoleculeDataRoomMoveEntryResult!
+	"""
+	Removes an entry from the data room.
+	"""
+	removeEntry(path: CollectionPathV2!, changeBy: String!, expectedHead: Multihash): MoleculeDataRoomRemoveEntryResult!
+	"""
+	Updates the metadata of a file in the data room.
+	"""
+	updateFileMetadata(		ref: DatasetID!,
+		"""
+		Expected head block hash to prevent concurrent updates
+		"""
+		expectedHead: Multihash,		accessLevel: String!,		changeBy: String!,		description: String,		categories: [String!],		tags: [String!],		contentText: String
+	): MoleculeDataRoomUpdateFileMetadataResult!
+}
+
+type MoleculeDataRoomPathOccupied implements MoleculeDataRoomFinishUploadFileResult & MoleculeDataRoomMoveEntryResult {
+	byEntry: MoleculeDataRoomEntry!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomProjection {
+	entries(pathPrefix: CollectionPathV2, maxDepth: Int, page: Int, perPage: Int, filters: MoleculeDataRoomEntriesFilters): MoleculeDataRoomEntryConnection!
+	entry(path: CollectionPathV2!): MoleculeDataRoomEntry
+}
+
+interface MoleculeDataRoomRemoveEntryResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomUpdateEntryByPathNotFound implements MoleculeDataRoomMoveEntryResult & MoleculeDataRoomRemoveEntryResult {
+	path: CollectionPathV2!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomUpdateEntryByRefNotFound implements MoleculeDataRoomFinishUploadFileResult & MoleculeDataRoomUpdateFileMetadataResult {
+	ref: DatasetID!
+	isSuccess: Boolean!
+	message: String!
+}
+
+interface MoleculeDataRoomUpdateFileMetadataResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomUpdateFileMetadataResultFileNotFound implements MoleculeDataRoomUpdateFileMetadataResult {
+	ref: DatasetID!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomUpdateFileMetadataResultSuccess implements MoleculeDataRoomUpdateFileMetadataResult {
+	entry: MoleculeDataRoomEntry!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomUpdateSuccess implements MoleculeDataRoomMoveEntryResult & MoleculeDataRoomRemoveEntryResult {
+	oldHead: Multihash!
+	newHead: Multihash!
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeDataRoomUpdateUpToDate implements MoleculeDataRoomMoveEntryResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type MoleculeEncryptionMetadata {
+	dataToEncryptHash: String!
+	accessControlConditions: String!
+	encryptedBy: String!
+	encryptedAt: String!
+	chain: String!
+	litSdkVersion: String!
+	litNetwork: String!
+	templateName: String!
+	contractVersion: String!
+}
+
+input MoleculeEncryptionMetadataInput {
+	dataToEncryptHash: String!
+	accessControlConditions: String!
+	encryptedBy: String!
+	encryptedAt: String!
+	chain: String!
+	litSdkVersion: String!
+	litNetwork: String!
+	templateName: String!
+	contractVersion: String!
+}
+
+type MoleculeMut {
+	"""
+	Shortcut for `v1 { create_project() }`.
+	"""
+	createProject(ipnftSymbol: String!, ipnftUid: String!, ipnftAddress: String!, ipnftTokenId: U256!): CreateProjectResult! @deprecated(reason: "Use `v2 { create_project() }` instead")
+	"""
+	Looks up the project
+
+	Shortcut for `v1 { project() }`.
+	"""
+	project(ipnftUid: String!): MoleculeProjectMut @deprecated(reason: "Use `v2 { project }` instead")
+	"""
+	1-st Molecule API version (mutation).
+	"""
+	v1: MoleculeMutV1! @deprecated(reason: "Use `v2` instead")
+	"""
+	2-nd Molecule API version (mutation).
+	"""
+	v2: MoleculeMutV2!
+}
+
+type MoleculeMutV1 {
+	createProject(ipnftSymbol: String!, ipnftUid: String!, ipnftAddress: String!, ipnftTokenId: U256!): CreateProjectResult!
+	"""
+	Looks up the project
+	"""
+	project(ipnftUid: String!): MoleculeProjectMut
+}
+
+type MoleculeMutV2 {
+	createProject(ipnftSymbol: String!, ipnftUid: String!, ipnftAddress: String!, ipnftTokenId: U256!): CreateProjectResult!
+	"""
+	Retracts a project from the `projects` dataset.
+	History of this project existing will be preserved,
+	its symbol will remain reserved, data will remain intact,
+	but the project will no longer appear in the listing.
+	"""
+	disableProject(ipnftUid: String!): MoleculeProjectMutationResultV2!
+	enableProject(ipnftUid: String!): MoleculeProjectMutationResultV2!
+	"""
+	Looks up the project
+	"""
+	project(ipnftUid: String!): MoleculeProjectMutV2
+}
+
+type MoleculeProject {
+	"""
+	System time when this project was created/updated
+	"""
+	systemTime: DateTime!
+	"""
+	Event time when this project was created/updated
+	"""
+	eventTime: DateTime!
+	"""
+	Symbolic name of the project
+	"""
+	ipnftSymbol: String!
+	"""
+	Unique ID of the IPNFT as `{ipnftAddress}_{ipnftTokenId}`
+	"""
+	ipnftUid: String!
+	"""
+	Address of the IPNFT contract
+	"""
+	ipnftAddress: String!
+	"""
+	Token ID withing the IPNFT contract
+	"""
+	ipnftTokenId: BigInt!
+	"""
+	Project's organizational account
+	"""
+	account: Account!
+	"""
+	Project's data room dataset
+	"""
+	dataRoom: Dataset!
+	"""
+	Project's announcements dataset
+	"""
+	announcements: Dataset!
+	"""
+	Project's activity events in reverse chronological order
+	"""
+	activity(page: Int, perPage: Int): MoleculeProjectEventConnection!
+}
+
+input MoleculeProjectActivityFilters {
+	byTags: [String!]
+	byCategories: [String!]
+	byAccessLevels: [String!]
+	byAccessLevelRules: [MoleculeAccessLevelRuleInput!]
+	byKinds: [MoleculeActivityKindInput!]
+}
+
+type MoleculeProjectConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeProject!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeProjectEdge!]!
+}
+
+type MoleculeProjectEdge {
+	node: MoleculeProject!
+}
+
+interface MoleculeProjectEvent {
+	project: MoleculeProject!
+	systemTime: DateTime!
+}
+
+type MoleculeProjectEventAnnouncement implements MoleculeProjectEvent {
+	"""
+	Associated project
+	"""
+	project: MoleculeProject!
+	"""
+	Announcement record
+	"""
+	announcement: JSON!
+	systemTime: DateTime!
+}
+
+type MoleculeProjectEventConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeProjectEvent!]!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeProjectEventEdge!]!
+}
+
+type MoleculeProjectEventDataRoomEntryAdded implements MoleculeProjectEvent {
+	"""
+	Associated project
+	"""
+	project: MoleculeProject!
+	"""
+	Collection entry
+	"""
+	entry: CollectionEntry!
+	systemTime: DateTime!
+}
+
+type MoleculeProjectEventDataRoomEntryRemoved implements MoleculeProjectEvent {
+	"""
+	Associated project
+	"""
+	project: MoleculeProject!
+	"""
+	Collection entry
+	"""
+	entry: CollectionEntry!
+	systemTime: DateTime!
+}
+
+type MoleculeProjectEventDataRoomEntryUpdated implements MoleculeProjectEvent {
+	"""
+	Associated project
+	"""
+	project: MoleculeProject!
+	"""
+	Collection entry
+	"""
+	newEntry: CollectionEntry!
+	systemTime: DateTime!
+}
+
+type MoleculeProjectEventEdge {
+	node: MoleculeProjectEvent!
+}
+
+type MoleculeProjectEventFileUpdated implements MoleculeProjectEvent {
+	"""
+	Associated project
+	"""
+	project: MoleculeProject!
+	"""
+	Versioned file dataset
+	"""
+	dataset: Dataset!
+	"""
+	New file version entry
+	"""
+	newEntry: VersionedFileEntry!
+	systemTime: DateTime!
+}
+
+type MoleculeProjectMut {
+	"""
+	Creates an announcement record for the project
+	"""
+	createAnnouncement(		headline: String!,		body: String!,
+		"""
+		List of dataset DIDs to link
+		"""
+		attachments: [String!],		moleculeAccessLevel: String!,		moleculeChangeBy: String!
+	): CreateAnnouncementResult!
+}
+
+type MoleculeProjectMutV2 {
+	"""
+	Strongly typed data room mutator
+	"""
+	dataRoom: MoleculeDataRoomMutV2!
+	"""
+	Strongly typed announcements mutator
+	"""
+	announcements: MoleculeAnnouncementsDatasetMutV2!
+}
+
+type MoleculeProjectMutationResultV2 {
+	project: MoleculeProjectMutV2!
+	message: String!
+}
+
+type MoleculeProjectV2 {
+	"""
+	System time when this project was created/updated
+	"""
+	systemTime: DateTime!
+	"""
+	Event time when this project was created/updated
+	"""
+	eventTime: DateTime!
+	"""
+	Symbolic name of the project
+	"""
+	ipnftSymbol: String!
+	"""
+	Unique ID of the IPNFT as `{ipnftAddress}_{ipnftTokenId}`
+	"""
+	ipnftUid: String!
+	"""
+	Address of the IPNFT contract
+	"""
+	ipnftAddress: String!
+	"""
+	Token ID withing the IPNFT contract
+	"""
+	ipnftTokenId: U256!
+	"""
+	Project's organizational account
+	"""
+	account: Account!
+	"""
+	Strongly typed data room accessor
+	"""
+	dataRoom: MoleculeDataRoom!
+	"""
+	Strongly typed announcements accessor
+	"""
+	announcements: MoleculeAnnouncements!
+	"""
+	Project's activity events in reverse chronological order
+	"""
+	activity(page: Int, perPage: Int, filters: MoleculeProjectActivityFilters): MoleculeActivityEventV2Connection!
+}
+
+type MoleculeProjectV2Connection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeProjectV2!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeProjectV2Edge!]!
+}
+
+type MoleculeProjectV2Edge {
+	node: MoleculeProjectV2!
+}
+
+type MoleculeQuotaExceeded implements MoleculeDataRoomFinishUploadFileResult & MoleculeDataRoomMoveEntryResult & MoleculeDataRoomRemoveEntryResult & MoleculeDataRoomUpdateFileMetadataResult {
+	used: Int
+	incoming: Int
+	limit: Int
+	isSuccess: Boolean!
+	message: String!
+}
+
+enum MoleculeSearchEntityKindInput {
+	FILE
+	ANNOUNCEMENT
+}
+
+input MoleculeSemanticSearchFilters {
+	byIpnftUids: [String!]
+	byTags: [String!]
+	byCategories: [String!]
+	byAccessLevels: [String!]
+	byAccessLevelRules: [MoleculeAccessLevelRuleInput!]
+	byKinds: [MoleculeSearchEntityKindInput!]
+}
+
+type MoleculeSemanticSearchFoundAnnouncement {
+	announcement: MoleculeAnnouncementEntry!
+}
+
+type MoleculeSemanticSearchFoundDataRoomEntry {
+	entry: MoleculeDataRoomEntry!
+}
+
+union MoleculeSemanticSearchHit = MoleculeSemanticSearchFoundDataRoomEntry | MoleculeSemanticSearchFoundAnnouncement
+
+type MoleculeSemanticSearchHitConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [MoleculeSemanticSearchHit!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [MoleculeSemanticSearchHitEdge!]!
+}
+
+type MoleculeSemanticSearchHitEdge {
+	node: MoleculeSemanticSearchHit!
+}
+
+type MoleculeV1 {
+	"""
+	Looks up the project
+	"""
+	project(ipnftUid: String!): MoleculeProject
+	"""
+	List the registered projects
+	"""
+	projects(page: Int, perPage: Int): MoleculeProjectConnection!
+	"""
+	Latest activity events across all projects in reverse chronological
+	order
+	"""
+	activity(page: Int, perPage: Int): MoleculeProjectEventConnection!
+}
+
+type MoleculeV2 {
+	"""
+	Looks up the project
+	"""
+	project(ipnftUid: String!): MoleculeProjectV2
+	"""
+	List the registered projects
+	"""
+	projects(page: Int, perPage: Int): MoleculeProjectV2Connection!
+	"""
+	Latest activity events across all projects in reverse chronological
+	order
+	"""
+	activity(page: Int, perPage: Int, filters: MoleculeProjectActivityFilters): MoleculeActivityEventV2Connection!
+	"""
+	Performs a semantic search
+	Using `filters` parameters, a search can be narrowed down to:
+	- a specific set of projects
+	- specific categories and tags
+	- only returning files or announcements
+	"""
+	search(prompt: String!, filters: MoleculeSemanticSearchFilters, page: Int, perPage: Int): MoleculeSemanticSearchHitConnection!
+}
+
+type MoleculeVersionedFile {
+	"""
+	Returns the latest versioned file entry, regardless of data room version
+	"""
+	latest: MoleculeVersionedFileEntry
+	"""
+	Returns the versioned file entry that matches the data room entry
+	"""
+	matching: MoleculeVersionedFileEntry!
+	"""
+	Returns particular versioned file entry, regardless of data room version
+	"""
+	asOf(blockHash: Multihash!): MoleculeVersionedFileEntry
+}
+
+type MoleculeVersionedFileEntry {
+	systemTime: DateTime!
+	eventTime: DateTime!
+	version: Int!
+	contentHash: Multihash!
+	contentLength: Int!
+	contentType: String!
+	accessLevel: String!
+	changeBy: String!
+	description: String
+	categories: [String!]!
+	tags: [String!]!
+	contentText: String
+	encryptionMetadata: MoleculeEncryptionMetadata
+	"""
+	Returns encoded content in-band. Should be used for small files only and
+	will return an error if called on large data.
+	"""
+	content: Base64Usnp!
+	"""
+	Returns a direct download URL
+	"""
+	contentUrl: VersionedFileContentDownload!
 }
 
 """
@@ -2597,11 +3987,19 @@ type Mutation {
 	"""
 	accounts: AccountsMut!
 	"""
+	Temporary: Molecule-specific functionality group
+	"""
+	molecule: MoleculeMut!
+	"""
 	Collaboration-related functionality group
 
 	Allows setting permissions for multiple datasets in batch mode
 	"""
 	collaboration: CollaborationMut!
+	"""
+	Admin-related functionality group
+	"""
+	admin: AdminMut!
 }
 
 union NameLookupResult = Account
@@ -2628,6 +4026,7 @@ type NameLookupResultEdge {
 
 type NoChanges implements CommitResult & UpdateReadmeResult {
 	message: String!
+	isSuccess: Boolean!
 }
 
 type OdataProtocolDesc {
@@ -2649,6 +4048,11 @@ type OffsetInterval {
 	End of the closed interval [start; end].
 	"""
 	end: Int!
+}
+
+enum OrderingDirection {
+	ASC
+	DESC
 }
 
 type PageBasedInfo {
@@ -2733,11 +4137,6 @@ input PrivateDatasetVisibilityInput {
 	dummy: String
 }
 
-input PropagationMode @oneOf {
-	custom: FlowConfigurationResetCustom
-	toSeed: FlowConfigurationResetToSeedDummy
-}
-
 type PublicDatasetVisibility {
 	anonymousAvailable: Boolean!
 }
@@ -2792,6 +4191,10 @@ type Query {
 	Admin-related functionality group
 	"""
 	admin: Admin!
+	"""
+	Temporary: Molecule-specific functionality group
+	"""
+	molecule: Molecule!
 }
 
 enum QueryDialect {
@@ -2799,6 +4202,20 @@ enum QueryDialect {
 	SQL_FLINK
 	SQL_DATA_FUSION
 	SQL_RISING_WAVE
+}
+
+interface ReactivateWebhookSubscriptionResult {
+	message: String!
+}
+
+type ReactivateWebhookSubscriptionResultSuccess implements ReactivateWebhookSubscriptionResult {
+	reactivated: Boolean!
+	message: String!
+}
+
+type ReactivateWebhookSubscriptionResultUnexpected implements ReactivateWebhookSubscriptionResult {
+	status: WebhookSubscriptionStatus!
+	message: String!
 }
 
 """
@@ -3081,12 +4498,6 @@ type RequestHeader {
 	value: String!
 }
 
-input ResetConditionInput {
-	mode: PropagationMode!
-	oldHeadHash: Multihash
-	recursive: Boolean!
-}
-
 type RestProtocolDesc {
 	tailUrl: String!
 	queryUrl: String!
@@ -3121,12 +4532,13 @@ type RevokeResultSuccess implements RevokeResult {
 	message: String!
 }
 
-input ScheduleInput @oneOf {
-	timeDelta: TimeDeltaInput
-	"""
-	Supported CRON syntax: min hour dayOfMonth month dayOfWeek
-	"""
-	cron5ComponentExpression: String
+interface RotateWebhookSubscriptionSecretResult {
+	message: String!
+}
+
+type RotateWebhookSubscriptionSecretSuccess implements RotateWebhookSubscriptionSecretResult {
+	newSecret: String!
+	message: String!
 }
 
 type Search {
@@ -3136,11 +4548,18 @@ type Search {
 	versatile interface to the user consisting of just one input field.
 	"""
 	query(query: String!, page: Int, perPage: Int): SearchResultConnection!
+	queryFullText(prompt: String!, page: Int, perPage: Int): FullTextSearchResponse!
 	"""
 	Searches for datasets and other objects managed by the
 	current node using a prompt in natural language
 	"""
-	queryNaturalLanguage(prompt: String!, perPage: Int): SearchResultExConnection!
+	queryNaturalLanguage(prompt: String!, limit: Int): SearchResultExConnection!
+	"""
+	Searches for datasets and other objects managed by the
+	current node using a prompt, mixing full-text and natural language
+	methods
+	"""
+	queryHybrid(prompt: String!, limit: Int): SearchResultExConnection!
 	"""
 	Perform lightweight search among resource names.
 	Useful for autocomplete.
@@ -3210,6 +4629,27 @@ type Seed {
 	Type of the dataset.
 	"""
 	datasetKind: DatasetKind!
+}
+
+input SetAccountQuotasInput {
+	storage: SetAccountQuotasStorageInput
+}
+
+interface SetAccountQuotasResult {
+	isSuccess: Boolean!
+	message: String!
+}
+
+type SetAccountQuotasResultInvalidInput implements SetAccountQuotasResult {
+	message: String!
+}
+
+type SetAccountQuotasResultSuccess implements SetAccountQuotasResult {
+	message: String!
+}
+
+input SetAccountQuotasStorageInput {
+	limitTotalBytes: Int
 }
 
 """
@@ -3395,16 +4835,6 @@ type SetWatermarkUpdated implements SetWatermarkResult {
 	message: String!
 }
 
-type SnapshotConfigurationResetCustom {
-	newHeadHash: Multihash!
-}
-
-type SnapshotConfigurationResetToSeedDummy {
-	dummy: String
-}
-
-union SnapshotPropagationMode = SnapshotConfigurationResetCustom | SnapshotConfigurationResetToSeedDummy
-
 """
 Defines how external data should be cached.
 
@@ -3528,24 +4958,40 @@ type Task {
 	finishedAt: DateTime
 }
 
+union TaskFailureReason = TaskFailureReasonGeneral | TaskFailureReasonInputDatasetCompacted | TaskFailureReasonWebhookDeliveryProblem
+
+type TaskFailureReasonGeneral {
+	message: String!
+	recoverable: Boolean!
+}
+
+type TaskFailureReasonInputDatasetCompacted {
+	inputDataset: Dataset!
+	message: String!
+}
+
+type TaskFailureReasonWebhookDeliveryProblem {
+	targetUrl: Url!
+	message: String!
+}
+
 scalar TaskID
 
 """
 Describes a certain final outcome of the task
 """
-enum TaskOutcome {
-	"""
-	Task succeeded
-	"""
-	SUCCESS
-	"""
-	Task failed to complete
-	"""
-	FAILED
-	"""
-	Task was cancelled by a user
-	"""
-	CANCELLED
+union TaskOutcome = TaskOutcomeSuccess | TaskOutcomeFailed | TaskOutcomeCancelled
+
+type TaskOutcomeCancelled {
+	message: String!
+}
+
+type TaskOutcomeFailed {
+	reason: TaskFailureReason!
+}
+
+type TaskOutcomeSuccess {
+	message: String!
 }
 
 """
@@ -3598,6 +5044,15 @@ enum TimeUnit {
 	HOURS
 	DAYS
 	WEEKS
+}
+
+type TotalDatasetsStatistic {
+	totalRecords: Int!
+	totalDataSizeBytes: Int!
+	totalCheckpointsSizeBytes: Int!
+	totalNumLinkedObjects: Int!
+	totalLinkedObjectsSizeBytes: Int!
+	totalSizeBytes: Int!
 }
 
 """
@@ -3653,6 +5108,11 @@ type TriggerFlowSuccess implements TriggerFlowResult {
 	message: String!
 }
 
+"""
+256-bit unsigned number. Can be constructed from string.
+"""
+scalar U256
+
 scalar URL
 
 interface UnsetRoleResult {
@@ -3680,16 +5140,24 @@ interface UpdateReadmeResult {
 	message: String!
 }
 
-type UpdateVersionErrorCasFailed implements UpdateVersionResult {
+type UpdateVersionErrorCasFailed implements UpdateVersionResult & MoleculeDataRoomUpdateFileMetadataResult {
 	expectedHead: Multihash!
 	actualHead: Multihash!
 	isSuccess: Boolean!
 	message: String!
 }
 
-type UpdateVersionErrorInvalidExtraData implements UpdateVersionResult {
+type UpdateVersionErrorInvalidExtraData implements UpdateVersionResult & MoleculeDataRoomUpdateFileMetadataResult {
 	message: String!
 	isSuccess: Boolean!
+}
+
+type UpdateVersionErrorQuotaExceeded implements UpdateVersionResult {
+	used: Int
+	incoming: Int
+	limit: Int
+	isSuccess: Boolean!
+	message: String!
 }
 
 interface UpdateVersionResult {
@@ -3738,6 +5206,11 @@ type UpsertDatasetEnvVarUpToDate implements UpsertDatasetEnvVarResult {
 	message: String!
 }
 
+"""
+URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
+"""
+scalar Url
+
 type VersionedFile {
 	"""
 	Returns list of versions in reverse chronological order
@@ -3775,11 +5248,11 @@ type VersionedFileContentDownload {
 
 type VersionedFileEntry {
 	"""
-	System time when this version was created/updated
+	System time when this version was created
 	"""
 	systemTime: DateTime!
 	"""
-	Event time when this version was created/updated
+	Event time when this version was created
 	"""
 	eventTime: DateTime!
 	"""
@@ -3973,6 +5446,38 @@ type WebSocketProtocolDesc {
 
 scalar WebhookEventType
 
+type WebhookFlowSubProcess {
+	id: WebhookSubscriptionID!
+	name: String!
+	parentDataset: Dataset
+	summary: FlowProcessSummary!
+}
+
+type WebhookFlowSubProcessConnection {
+	"""
+	A shorthand for `edges { node { ... } }`
+	"""
+	nodes: [WebhookFlowSubProcess!]!
+	"""
+	Approximate number of total nodes
+	"""
+	totalCount: Int!
+	"""
+	Page information
+	"""
+	pageInfo: PageBasedInfo!
+	edges: [WebhookFlowSubProcessEdge!]!
+}
+
+type WebhookFlowSubProcessEdge {
+	node: WebhookFlowSubProcess!
+}
+
+type WebhookFlowSubProcessGroup {
+	rollup: FlowProcessGroupRollup!
+	subprocesses: [WebhookFlowSubProcess!]!
+}
+
 type WebhookSubscription {
 	"""
 	Unique identifier of the webhook subscription
@@ -4025,6 +5530,8 @@ type WebhookSubscriptionMut {
 	update(input: WebhookSubscriptionInput!): UpdateWebhookSubscriptionResult!
 	pause: PauseWebhookSubscriptionResult!
 	resume: ResumeWebhookSubscriptionResult!
+	reactivate: ReactivateWebhookSubscriptionResult!
+	rotateSecret: RotateWebhookSubscriptionSecretResult!
 	remove: RemoveWebhookSubscriptionResult!
 }
 
@@ -4048,6 +5555,10 @@ type Webhooks {
 	eventTypes: [String!]!
 }
 
+"""
+Marks an element of a GraphQL schema as no longer supported.
+"""
+directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """

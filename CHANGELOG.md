@@ -12,21 +12,33 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
-## [0.5.1] - 2025-09-26
+## [0.5.2] - 2026-01-28
+### Changed
+- HTTP: Added exponential backoff on errors (#44).
+- GQL: Update kamu-api-server schema (#44).
+- Updated some dependencies (#44):
+  - `alloy` to `1.5.2`
+  - `aws-lc-rs` to `1.15.4`
 ### Fixed
-- (#30) Updating the SQL query for the list of versioned files after updating Kamu Node version to 0.75.1
+- Access revocation for deleted/disabled projects (`-R`, retraction) (#44).
+- Config (env vars): `KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS` correct parsing of list values (#44).
+- Increased the number of rows requested in SQL query results (#44).
+
+## [0.5.1] - 2026-01-26
+### Fixed
+- Updating the SQL query for the list of versioned files after updating Kamu Node version to 0.75.1 (#30):
   - Added a workaround so that the query works correctly with Datafusion 50, 
     which began to be used with the new release.
 
 ## [0.5.0] - 2025-08-28
 ### Added
-- (#29) `kamu-molecule-bridge run --dry-run`: Mode in which Bridge does not make any changes to Kamu Node.
+- `kamu-molecule-bridge run --dry-run`: Mode in which Bridge does not make any changes to Kamu Node (#29).
 ### Changed
-- (#29) Multisig indexing improvements.
+-  Multisig indexing improvements (#29).
 
 ## [0.4.0] - 2025-08-01
 ### Changed
-- (#25) Stabilizing block interval indexing when they contain many events.
+- Stabilizing block interval indexing when they contain many events (#25).
 
 ## [0.3.0] - 2025-07-30
 ### Added
