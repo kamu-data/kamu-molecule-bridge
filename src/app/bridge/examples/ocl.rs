@@ -2,24 +2,30 @@
 // cargo run -p kamu-molecule-bridge --example ocl
 // ```
 
-use color_eyre::eyre;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use alloy::providers::fillers::ChainIdFiller;
 use alloy::providers::{Provider, ProviderBuilder};
+use alloy::rpc::types::Log;
 use alloy::sol;
 use alloy::sol_types::SolEvent;
 use alloy_ext::prelude::*;
+use color_eyre::eyre;
 
-const PRINT_EVENTS: bool = false;
+const PRINT_EVENTS: bool = true;
 
 sol!(
+    // Generate Debug impls
     #[sol(all_derives = true)]
-    #[allow(missing_docs)]
     LabNFT,
     "./examples/abi/LabNFT.json"
 );
+
+const INDEX_EVENTS: [B256; 2] = [
+    LabNFT::Transfer::SIGNATURE_HASH,
+    LabNFT::OclTransfer::SIGNATURE_HASH,
+];
 
 #[derive(confique::Config, Debug)]
 struct Config {
@@ -58,14 +64,11 @@ async fn main() -> eyre::Result<()> {
 
     let latest = provider.get_block_number().await?;
 
-    // Note: no burn function
-    // https://github.com/moleculeprotocol/onchainlabs/blob/c69b3774a887906a3a05983d4a410847a189a779/docs/nft/labnft-solady-migration-plan.md?plain=1#L704
-
     let mut logs = Vec::new();
     provider
         .get_logs_ext(
             vec![config.labnft_address],
-            HashSet::from([LabNFT::OclTransfer::SIGNATURE_HASH]),
+            HashSet::from(INDEX_EVENTS),
             config.from_block,
             latest,
             &mut |chunk| {
@@ -81,19 +84,46 @@ async fn main() -> eyre::Result<()> {
         config.from_block
     );
 
+    // Note: no burn function
+    // https://github.com/moleculeprotocol/onchainlabs/blob/c69b3774a887906a3a05983d4a410847a189a779/docs/nft/labnft-solady-migration-plan.md?plain=1#L704
+
+    use LabNFT::{OclTransfer, Transfer};
+
+    type OclBalances = HashMap<Address, B256>;
+    type OclState = HashMap<String, OclBalances>;
+
+    let ocl_state: OclState = HashMap::new();
+
     for log in &logs {
-        let block = log.block_number.unwrap();
-
-        if log.event_signature_hash() != LabNFT::OclTransfer::SIGNATURE_HASH {
-            unreachable!();
-        }
-
-        let event = LabNFT::OclTransfer::decode_log(&log.inner)?;
-
-        if PRINT_EVENTS {
-            println!("OclTransfer (block: {block}): {event:#?}\n");
+        match log.event_signature_hash() {
+            Transfer::SIGNATURE_HASH => {
+                decode_event::<Transfer>(log)?;
+            }
+            OclTransfer::SIGNATURE_HASH => {
+                decode_event::<OclTransfer>(log)?;
+            }
+            _ => unreachable!(),
         }
     }
 
     Ok(())
+}
+
+fn decode_event<E>(log: &Log) -> eyre::Result<E>
+where
+    E: SolEvent + std::fmt::Debug,
+{
+    let event = E::decode_log(&log.inner)?;
+
+    if PRINT_EVENTS {
+        let block = log.block_number.unwrap();
+        let index = log.log_index.unwrap();
+        println!(
+            "- {}\n(block: {block}, index: {index}): {:#?}\n",
+            E::SIGNATURE,
+            event.data
+        );
+    }
+
+    Ok(event.data)
 }
