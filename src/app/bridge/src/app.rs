@@ -10,7 +10,7 @@ use color_eyre::eyre;
 use color_eyre::eyre::bail;
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
-use molecule_contracts::{IPNFT, Safe, Synthesizer, Tokenizer, safe};
+use molecule_contracts::{LabNFT, Safe, safe};
 use molecule_ipnft::entities::*;
 use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
@@ -49,7 +49,6 @@ pub struct AppState {
     latest_indexed_block_number: u64,
 
     token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
-    tokens_latest_indexed_block_number: u64,
 
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
     multisig: HashMap<Address, Option<MultisigState>>,
@@ -290,17 +289,13 @@ impl App {
         app_state: &mut AppState,
         to_block: u64,
     ) -> eyre::Result<IndexingResponse> {
-        let IndexIpnftAndTokenizerContractsResponse {
-            ipnft_events,
-            tokenizer_events,
-        } = self
-            .index_ipnft_and_tokenizer_contracts(
-                app_state.latest_indexed_block_number + 1,
-                to_block,
-            )
+        // TODO: use
+        let _labnft_events = self
+            .index_labnft_contract(app_state.latest_indexed_block_number + 1, to_block)
             .await?;
 
-        let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
+        // TODO: remove
+        let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(vec![]);
         for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
             let mut just_created = false;
             let ipnft_state = app_state
@@ -334,19 +329,6 @@ impl App {
             .await?;
 
         app_state.latest_indexed_block_number = to_block;
-
-        let ProcessTokenizerEventsResponse {
-            minimal_ipt_birth_block,
-        } = self.process_tokenizer_events(app_state, tokenizer_events);
-
-        // TODO: remove
-        let _from_block = if app_state.tokens_latest_indexed_block_number == 0 {
-            minimal_ipt_birth_block
-        } else {
-            app_state.tokens_latest_indexed_block_number + 1
-        };
-
-        app_state.tokens_latest_indexed_block_number = to_block;
 
         // Populate IPNFT blockchain changes:
         let mut ipnft_changes_map: HashMap<IpnftUid, IpnftChanges> = HashMap::new();
@@ -390,22 +372,15 @@ impl App {
             diff = to_block.checked_sub(from_block),
         )
     )]
-    async fn index_ipnft_and_tokenizer_contracts(
+    async fn index_labnft_contract(
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> eyre::Result<IndexIpnftAndTokenizerContractsResponse> {
-        let event_signatures = HashSet::from_iter([
-            IPNFT::IPNFTMinted::SIGNATURE_HASH,
-            IPNFT::Transfer::SIGNATURE_HASH,
-            Tokenizer::TokensCreated::SIGNATURE_HASH,
-            // NOTE: Backward compatibility, based on:
-            //       https://github.com/moleculeprotocol/IPNFT/blob/main/subgraph/makeAbis.sh
-            Synthesizer::MoleculesCreated::SIGNATURE_HASH,
-        ]);
+    ) -> eyre::Result<Vec<LabNFT::OclTransfer>> {
+        // TODO: static/const
+        let event_signatures = HashSet::from_iter([LabNFT::OclTransfer::SIGNATURE_HASH]);
 
-        let mut ipnft_events = Vec::new();
-        let mut tokenizer_events = Vec::new();
+        let mut events = Vec::new();
 
         self.rpc_client
             .get_logs_ext(
@@ -417,74 +392,13 @@ impl App {
                 &mut |logs_chunk| {
                     for log in logs_chunk.logs {
                         match log.event_signature_hash() {
-                            IPNFT::IPNFTMinted::SIGNATURE_HASH => {
-                                let event = IPNFT::IPNFTMinted::decode_log(&log.inner)?;
-                                let ipnft_uid = IpnftUid {
-                                    ipnft_address: event.address,
-                                    token_id: event.tokenId,
-                                };
+                            LabNFT::OclTransfer::SIGNATURE_HASH => {
+                                let log_event = LabNFT::OclTransfer::decode_log(&log.inner)?;
+                                let event = log_event.data;
 
-                                ipnft_events.push(IpnftEvent::Minted(IpnftEventMinted {
-                                    ipnft_uid,
-                                    initial_owner: event.owner,
-                                    symbol: event.symbol.clone(),
-                                }));
-                            }
-                            IPNFT::Transfer::SIGNATURE_HASH => {
-                                let event = IPNFT::Transfer::decode_log(&log.inner)?;
-                                let ipnft_uid = IpnftUid {
-                                    ipnft_address: event.address,
-                                    token_id: event.tokenId,
-                                };
-
-                                match (event.from, event.to) {
-                                    (Address::ZERO, _) => {
-                                        // NOTE: Skip as we use higher-level
-                                        //       IPNFTMinted event for that
-                                    }
-                                    (from, Address::ZERO) => {
-                                        ipnft_events.push(IpnftEvent::Burnt(IpnftEventBurnt {
-                                            ipnft_uid,
-                                            former_owner: from,
-                                        }));
-                                    }
-                                    (from, to) => {
-                                        ipnft_events.push(IpnftEvent::Transfer(
-                                            IpnftEventTransfer {
-                                                ipnft_uid,
-                                                from,
-                                                to,
-                                            },
-                                        ));
-                                    }
-                                }
-                            }
-                            Tokenizer::TokensCreated::SIGNATURE_HASH => {
-                                let event = Tokenizer::TokensCreated::decode_log(&log.inner)?;
-
-                                tokenizer_events.push(TokenizerEvent::TokenCreated(
-                                    TokenizerEventTokenCreated {
-                                        symbol: event.symbol.clone(),
-                                        token_id: event.ipnftId,
-                                        token_address: event.tokenContract,
-                                        birth_block: log.block_number.unwrap_or_default(),
-                                    },
-                                ));
-                            }
-                            Synthesizer::MoleculesCreated::SIGNATURE_HASH => {
-                                let event = Synthesizer::MoleculesCreated::decode_log(&log.inner)?;
-
-                                tokenizer_events.push(TokenizerEvent::TokenCreated(
-                                    TokenizerEventTokenCreated {
-                                        symbol: event.symbol.clone(),
-                                        token_id: event.ipnftId,
-                                        token_address: event.tokenContract,
-                                        birth_block: log.block_number.unwrap_or_default(),
-                                    },
-                                ));
+                                events.push(event);
                             }
                             unknown_event_signature_hash => {
-                                // TODO: extract error
                                 bail!(
                                     "Unknown event signature hash: {unknown_event_signature_hash}"
                                 )
@@ -497,10 +411,7 @@ impl App {
             )
             .await?;
 
-        Ok(IndexIpnftAndTokenizerContractsResponse {
-            ipnft_events,
-            tokenizer_events,
-        })
+        Ok(events)
     }
 
     #[tracing::instrument(
@@ -584,63 +495,6 @@ impl App {
         Ok(IndexMultisigSafesResponse {
             changed_ipnft_multisig_owners,
         })
-    }
-
-    fn process_tokenizer_events(
-        &mut self,
-        app_state: &mut AppState,
-        tokenizer_events: Vec<TokenizerEvent>,
-    ) -> ProcessTokenizerEventsResponse {
-        let mut minimal_birth_block = 0;
-
-        for event in tokenizer_events {
-            match event {
-                TokenizerEvent::TokenCreated(TokenizerEventTokenCreated {
-                    token_id,
-                    token_address,
-                    symbol,
-                    birth_block,
-                }) => {
-                    let maybe_ipnft_state_pair =
-                        app_state
-                            .ipnft_state_map
-                            .iter_mut()
-                            .find(|(ipnft_uid, ipnft_state)| {
-                                ipnft_uid.token_id == token_id
-                                    && ipnft_state.ipnft.symbol.as_ref() == Some(&symbol)
-                            });
-
-                    let Some((ipnft_uid, ipnft_state)) = maybe_ipnft_state_pair else {
-                        tracing::warn!(
-                            "Skip '{symbol}' ({token_id}/{token_address}) token as there is no corresponding IPNFT"
-                        );
-                        continue;
-                    };
-
-                    debug_assert!(ipnft_state.token.is_none());
-
-                    ipnft_state.token = Some(TokenProjection {
-                        token_address,
-                        // NOTE: Will be populated later
-                        holder_balances: HashMap::new(),
-                    });
-
-                    app_state
-                        .token_address_ipnft_uid_mapping
-                        .insert(token_address, *ipnft_uid);
-
-                    if minimal_birth_block == 0 {
-                        minimal_birth_block = birth_block;
-                    } else {
-                        minimal_birth_block = minimal_birth_block.min(birth_block);
-                    }
-                }
-            }
-        }
-
-        ProcessTokenizerEventsResponse {
-            minimal_ipt_birth_block: minimal_birth_block,
-        }
     }
 
     #[tracing::instrument(level = "info", skip_all)]
@@ -1343,18 +1197,9 @@ struct OwnerChanges {
     current_owner: Option<Address>,
 }
 
-struct IndexIpnftAndTokenizerContractsResponse {
-    ipnft_events: Vec<IpnftEvent>,
-    tokenizer_events: Vec<TokenizerEvent>,
-}
-
 #[derive(Debug, Default)]
 struct IndexMultisigSafesResponse {
     changed_ipnft_multisig_owners: HashMap<IpnftUid, Address>,
-}
-
-struct ProcessTokenizerEventsResponse {
-    minimal_ipt_birth_block: u64,
 }
 
 #[derive(Debug)]
