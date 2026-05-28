@@ -13,7 +13,7 @@ use alloy::sol_types::SolEvent;
 use alloy_ext::prelude::*;
 use color_eyre::eyre;
 
-const PRINT_EVENTS: bool = true;
+const PRINT_EVENTS: bool = false;
 
 sol!(
     // Generate Debug impls
@@ -22,10 +22,7 @@ sol!(
     "./examples/abi/LabNFT.json"
 );
 
-const INDEX_EVENTS: [B256; 2] = [
-    LabNFT::Transfer::SIGNATURE_HASH,
-    LabNFT::OclTransfer::SIGNATURE_HASH,
-];
+const INDEX_EVENTS: [B256; 1] = [LabNFT::OclTransfer::SIGNATURE_HASH];
 
 #[derive(confique::Config, Debug)]
 struct Config {
@@ -87,26 +84,83 @@ async fn main() -> eyre::Result<()> {
     // Note: no burn function
     // https://github.com/moleculeprotocol/onchainlabs/blob/c69b3774a887906a3a05983d4a410847a189a779/docs/nft/labnft-solady-migration-plan.md?plain=1#L704
 
-    use LabNFT::{OclTransfer, Transfer};
-
-    type OclBalances = HashMap<Address, B256>;
-    type OclState = HashMap<String, OclBalances>;
-
-    let ocl_state: OclState = HashMap::new();
+    let mut registry = OclRegistry::default();
 
     for log in &logs {
+        use LabNFT::OclTransfer;
+
         match log.event_signature_hash() {
-            Transfer::SIGNATURE_HASH => {
-                decode_event::<Transfer>(log)?;
-            }
             OclTransfer::SIGNATURE_HASH => {
-                decode_event::<OclTransfer>(log)?;
+                let transfer = decode_event::<OclTransfer>(log)?;
+                registry.apply_transfer(&transfer);
             }
             _ => unreachable!(),
         }
     }
 
+    println!("OCL ownership map ({} entries):\n", registry.order.len());
+    for ocl_id in &registry.order {
+        let ownership = &registry.entries[ocl_id];
+        println!(
+            "- ocl_id = {ocl_id:#x}\n  current = {}\n  previous = {:?}\n",
+            ownership
+                .current
+                .map(|address| format!("{address:#x}"))
+                .unwrap_or_else(|| "<none>".into()),
+            ownership
+                .previous
+                .iter()
+                .map(|address| format!("{address:#x}"))
+                .collect::<Vec<_>>(),
+        );
+    }
+
     Ok(())
+}
+
+#[derive(Debug, Default)]
+struct OclOwnership {
+    current: Option<Address>,
+    previous: Vec<Address>,
+}
+
+#[derive(Debug, Default)]
+struct OclRegistry {
+    // Use indexmap in app
+    order: Vec<B256>,
+    entries: HashMap<B256, OclOwnership>,
+}
+
+impl OclRegistry {
+    fn apply_transfer(&mut self, transfer: &LabNFT::OclTransfer) {
+        use std::collections::hash_map::Entry;
+
+        match self.entries.entry(transfer.oclId) {
+            Entry::Vacant(entry) => {
+                self.order.push(transfer.oclId);
+
+                entry.insert(OclOwnership {
+                    current: Some(transfer.to),
+                    previous: Vec::new(),
+                });
+            }
+            Entry::Occupied(mut entry) => {
+                let ownership = entry.get_mut();
+
+                let new_current = transfer.to;
+
+                ownership
+                    .previous
+                    .retain(|previous| *previous != new_current);
+
+                if let Some(old_current) = ownership.current {
+                    ownership.previous.push(old_current);
+                }
+
+                ownership.current = Some(new_current);
+            }
+        }
+    }
 }
 
 fn decode_event<E>(log: &Log) -> eyre::Result<E>
