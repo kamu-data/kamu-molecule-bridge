@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use alloy::primitives::{Address, Log, U256};
+use alloy::primitives::{Address, Log};
 use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
 use chrono::{DateTime, Utc};
@@ -13,7 +13,7 @@ use molecule_contracts::prelude::*;
 use molecule_contracts::{LabNFT, Safe, safe};
 use molecule_ipnft::entities::*;
 use multisig::services::MultisigResolver;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tracing::Instrument as _;
@@ -68,7 +68,6 @@ impl StateRequester for RwLock<AppState> {
 struct IpnftState {
     ipnft: IpnftEventProjection,
     project: Option<ProjectProjection>,
-    token: Option<TokenProjection>,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,29 +88,6 @@ struct ProjectProjection {
 struct VersionedFileEntryWithMoleculeAccessLevel {
     entry: VersionedFileEntry,
     molecule_access_level: MoleculeAccessLevel,
-}
-
-#[derive(Debug, Serialize)]
-struct TokenProjection {
-    token_address: Address,
-    #[serde(serialize_with = "serialize_hashmap_values_as_string")]
-    holder_balances: HashMap<Address, U256>,
-}
-
-fn serialize_hashmap_values_as_string<S>(
-    hash_map: &HashMap<Address, U256>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    use serde::ser::SerializeMap;
-
-    let mut map = serializer.serialize_map(Some(hash_map.len()))?;
-    for (k, v) in hash_map {
-        map.serialize_entry(k, &v.to_string())?;
-    }
-    map.end()
 }
 
 impl App {
