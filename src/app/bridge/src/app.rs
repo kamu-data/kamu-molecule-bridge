@@ -219,14 +219,10 @@ impl App {
     async fn init_state(&mut self) -> eyre::Result<AppState> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
-        let minimal_ipnft_or_tokenizer_birth_block_minus_one = self
-            .config
-            .ipnft_contract_birth_block
-            .min(self.config.tokenizer_contract_birth_block)
-            - 1;
+        let labnft_contract_birth_block_minus_one = self.config.labnft_contract_birth_block - 1;
 
         let mut initial_app_state = AppState {
-            latest_indexed_block_number: minimal_ipnft_or_tokenizer_birth_block_minus_one,
+            latest_indexed_block_number: labnft_contract_birth_block_minus_one,
             ..Default::default()
         };
 
@@ -425,10 +421,8 @@ impl App {
 
         self.rpc_client
             .get_logs_ext(
-                vec![
-                    self.config.ipnft_contract_address,
-                    self.config.tokenizer_contract_address,
-                ],
+                // TODO: add method for only one address?
+                vec![self.config.labnft_contract_address],
                 event_signatures,
                 from_block,
                 to_block,
