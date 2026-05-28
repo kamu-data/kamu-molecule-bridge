@@ -3,6 +3,7 @@ pub mod prelude;
 use alloy::sol;
 
 sol!(IPNFT, "abis/IPNFT.json");
+// TODO: remove
 sol!(IPToken, "abis/IPToken.json");
 sol!(Tokenizer, "abis/Tokenizer.json");
 // NOTE: Backward compatibility, based on:
