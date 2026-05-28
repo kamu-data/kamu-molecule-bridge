@@ -8,19 +8,12 @@ use alloy::primitives::{Address, B256};
 use alloy::providers::fillers::ChainIdFiller;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Log;
-use alloy::sol;
 use alloy::sol_types::SolEvent;
 use alloy_ext::prelude::*;
 use color_eyre::eyre;
+use molecule_contracts::LabNFT;
 
 const PRINT_EVENTS: bool = false;
-
-sol!(
-    // Generate Debug impls
-    #[sol(all_derives = true)]
-    LabNFT,
-    "./examples/abi/LabNFT.json"
-);
 
 const INDEX_EVENTS: [B256; 1] = [LabNFT::OclTransfer::SIGNATURE_HASH];
 
