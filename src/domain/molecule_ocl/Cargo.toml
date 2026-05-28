@@ -1,0 +1,37 @@
+[package]
+name = "molecule_ocl"
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+readme = { workspace = true }
+license-file = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+publish = { workspace = true }
+
+
+[lints]
+workspace = true
+
+
+[lib]
+doctest = false
+
+
+[features]
+default = []
+
+
+[dependencies]
+alloy = { workspace = true }
+color-eyre = { workspace = true }
+nutype = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+rstest = { workspace = true }
