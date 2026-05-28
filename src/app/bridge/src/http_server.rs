@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use color_eyre::eyre;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -9,7 +8,7 @@ pub type HttpServeFuture = axum::serve::Serve<
     axum::Router,
 >;
 
-#[async_trait]
+#[async_trait::async_trait]
 pub trait StateRequester: Send + Sync {
     async fn request_as_json(&self) -> serde_json::Value;
 }
@@ -34,7 +33,7 @@ pub async fn build(
         .layer(axum::extract::Extension(metrics_reg))
         .layer(axum::extract::Extension(state_requester));
 
-    let addr = std::net::SocketAddr::from((address, http_port));
+    let addr = SocketAddr::from((address, http_port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
 
