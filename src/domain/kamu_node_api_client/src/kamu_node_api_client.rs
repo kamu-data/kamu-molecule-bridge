@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use color_eyre::eyre::{self, bail};
-use molecule_ipnft::entities::IpnftUid;
 use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
@@ -74,7 +73,7 @@ impl TryFrom<u8> for OperationType {
 pub struct MoleculeProjectEntry {
     pub offset: u64,
     pub op: OperationType,
-    pub ipnft_uid: IpnftUid,
+    pub ocl_id: String,
     pub symbol: String,
     pub project_account_id: AccountID,
     pub data_room_dataset_id: DatasetID,

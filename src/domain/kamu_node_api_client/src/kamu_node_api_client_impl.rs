@@ -1,11 +1,9 @@
 use std::collections::HashSet;
-use std::str::FromStr;
 
 use async_trait::async_trait;
 use color_eyre::eyre;
 use color_eyre::eyre::bail;
 use graphql_client::{GraphQLQuery, Response};
-use molecule_ipnft::entities::IpnftUid;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -129,14 +127,14 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             r#"
             SELECT offset,
                    op,
-                   account_id AS project_account_id,
-                   ipnft_uid,
-                   ipnft_symbol,
-                   data_room_dataset_id,
-                   announcements_dataset_id
+                   ocl_id,
+                   symbol,
+                   odf_account_id AS project_account_id,
+                   odf_data_room_dataset_id AS data_room_dataset_id,
+                   odf_announcements_dataset_id AS announcements_dataset_id
             FROM (SELECT *,
                          row_number() over (
-                                         partition BY ipnft_symbol -- NOTE: account_id can change if the account is deleted
+                                         partition BY ocl_id
                                          ORDER BY `offset` DESC
                                      ) AS __rank
                   FROM '{molecule_projects}')
@@ -149,7 +147,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         let mut dtos = self.sql_query::<Vec<MoleculeProjectEntryDto>>(sql).await?;
 
         if let Some(ignore_ocl_ids) = maybe_ignore_ocl_ids {
-            dtos.retain(|p| !ignore_ocl_ids.contains(&p.ipnft_uid));
+            dtos.retain(|p| !ignore_ocl_ids.contains(&p.ocl_id));
         }
 
         let project_entries = dtos
@@ -470,9 +468,9 @@ struct SqlQuery;
 struct MoleculeProjectEntryDto {
     offset: u64,
     op: u8,
-    ipnft_uid: String,
-    ipnft_symbol: String,
-    project_account_id: crate::AccountID,
+    ocl_id: String,
+    symbol: String,
+    project_account_id: AccountID,
     data_room_dataset_id: DatasetID,
     announcements_dataset_id: DatasetID,
 }
@@ -484,8 +482,8 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
         Ok(MoleculeProjectEntry {
             offset: self.offset,
             op: self.op.try_into()?,
-            ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
-            symbol: self.ipnft_symbol,
+            ocl_id: self.ocl_id,
+            symbol: self.symbol,
             project_account_id: self.project_account_id,
             data_room_dataset_id: self.data_room_dataset_id,
             announcements_dataset_id: self.announcements_dataset_id,

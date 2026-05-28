@@ -12,7 +12,6 @@ use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
 use molecule_contracts::{LabNFT, Safe, safe};
 use molecule_ipnft::entities::*;
-use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
 use multisig::services::MultisigResolver;
 use serde::{Serialize, Serializer};
 use serde_json::Value;
@@ -42,10 +41,9 @@ pub struct App {
 pub struct AppState {
     projects_dataset_offset: Option<u64>,
 
-    ipnft_state_map: HashMap<IpnftUid, IpnftState>,
+    // TODO: stricter type?
+    ipnft_state_map: HashMap<String, IpnftState>,
     latest_indexed_block_number: u64,
-
-    token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
 
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
     multisig: HashMap<Address, Option<MultisigState>>,
@@ -291,29 +289,29 @@ impl App {
             .index_labnft_contract(app_state.latest_indexed_block_number + 1, to_block)
             .await?;
 
-        // TODO: remove
-        let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(vec![]);
-        for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
-            let mut just_created = false;
-            let ipnft_state = app_state
-                .ipnft_state_map
-                .entry(*ipnft_uid)
-                .or_insert_with(|| {
-                    just_created = true;
-                    IpnftState {
-                        ipnft: event_projection.clone(),
-                        project: None,
-                        token: None,
-                    }
-                });
-            // NOTE: No need to sync events the first time.
-            if !just_created {
-                IpnftEventProcessingStrategy.synchronize_ipnft_event_projections(
-                    &mut ipnft_state.ipnft,
-                    event_projection.clone(),
-                );
-            }
-        }
+        // // TODO: remove
+        // let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(vec![]);
+        // for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
+        //     let mut just_created = false;
+        //     let ipnft_state = app_state
+        //         .ipnft_state_map
+        //         .entry(*ipnft_uid)
+        //         .or_insert_with(|| {
+        //             just_created = true;
+        //             IpnftState {
+        //                 ipnft: event_projection.clone(),
+        //                 project: None,
+        //                 token: None,
+        //             }
+        //         });
+        //     // NOTE: No need to sync events the first time.
+        //     if !just_created {
+        //         IpnftEventProcessingStrategy.synchronize_ipnft_event_projections(
+        //             &mut ipnft_state.ipnft,
+        //             event_projection.clone(),
+        //         );
+        //     }
+        // }
 
         let IndexMultisigSafesResponse {
             changed_ipnft_multisig_owners,
@@ -328,22 +326,22 @@ impl App {
         app_state.latest_indexed_block_number = to_block;
 
         // Populate IPNFT blockchain changes:
-        let mut ipnft_changes_map: HashMap<IpnftUid, IpnftChanges> = HashMap::new();
-        // 1. From IPNFT contract
-        for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
-            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
-
-            if ipnft_event_projection.minted && ipnft_event_projection.burnt {
-                // NOTE: IPNFT was burned before we could give access to anyone.
-                //       So there's no need to revoke access from anyone as well.
-                tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
-                ipnft_change.minted_and_burnt = true;
-                continue;
-            }
-
-            ipnft_change.owner_changes.current_owner = ipnft_event_projection.current_owner;
-            ipnft_change.owner_changes.former_owner = ipnft_event_projection.former_owner;
-        }
+        let mut ipnft_changes_map: HashMap<String, IpnftChanges> = HashMap::new();
+        // // 1. From IPNFT contract
+        // for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
+        //     let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
+        //
+        //     if ipnft_event_projection.minted && ipnft_event_projection.burnt {
+        //         // NOTE: IPNFT was burned before we could give access to anyone.
+        //         //       So there's no need to revoke access from anyone as well.
+        //         tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
+        //         ipnft_change.minted_and_burnt = true;
+        //         continue;
+        //     }
+        //
+        //     ipnft_change.owner_changes.current_owner = ipnft_event_projection.current_owner;
+        //     ipnft_change.owner_changes.former_owner = ipnft_event_projection.former_owner;
+        // }
         // TODO: rewrite comments
         // 2. From IPToken contracts
         // 3. From multisig changes
@@ -483,7 +481,8 @@ impl App {
                 if let Some(owner) = ipnft_state.ipnft.current_owner
                     && changed_multisigs.contains(&owner)
                 {
-                    acc.insert(*ipnft_uid, owner);
+                    // TODO: remove clone()
+                    acc.insert(ipnft_uid.clone(), owner);
                 }
                 acc
             },
@@ -527,7 +526,7 @@ impl App {
             .get_molecule_project_entries(
                 app_state
                     .projects_dataset_offset
-                    .map(|off| off + 1)
+                    .map(|offset| offset + 1)
                     .unwrap_or(0),
                 self.config.ignore_ocl_ids.as_ref(),
             )
@@ -589,7 +588,7 @@ impl App {
             let _span = tracing::debug_span!(
                 "Process existing project",
                 symbol = project_entry.symbol,
-                ipnft_uid = %project_entry.ipnft_uid
+                ocl_id = project_entry.ocl_id
             )
             .entered();
 
@@ -638,7 +637,8 @@ impl App {
                 versioned_files_entries.latest_data_room_offset;
 
             if !detected_changes.is_empty() {
-                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+                // TODO: remove clone
+                detected_changes_map.insert(project_entry.ocl_id.clone(), detected_changes);
             }
         }
 
@@ -652,14 +652,13 @@ impl App {
             let _span = tracing::debug_span!(
                 "Process new project entry",
                 symbol = project_entry.symbol,
-                ipnft_uid = %project_entry.ipnft_uid
+                ocl_id = project_entry.ocl_id
             )
             .entered();
 
             new_projects_dataset_offset = Some(project_entry.offset);
 
-            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
-            else {
+            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ocl_id) else {
                 tracing::info!("Skip project because it's not present in blockchain");
                 continue;
             };
@@ -684,7 +683,8 @@ impl App {
             );
 
             if !detected_changes.is_empty() {
-                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+                // TODO: remove clone
+                detected_changes_map.insert(project_entry.ocl_id.clone(), detected_changes);
             }
 
             ipnft_state.project = Some(ProjectProjection {
@@ -710,7 +710,7 @@ impl App {
     async fn interval_access_applying(
         &self,
         app_state: &mut AppState,
-        ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+        ipnft_changes_map: HashMap<String, IpnftChanges>,
         to_block: u64,
     ) -> eyre::Result<()> {
         for (ipnft_uid, ipnft_change) in ipnft_changes_map {
@@ -721,7 +721,8 @@ impl App {
 
             let operations = self
                 .interval_access_applying_for_ipnft(
-                    ipnft_uid,
+                    // TODO: remove clone
+                    ipnft_uid.clone(),
                     ipnft_state,
                     ipnft_change,
                     &mut app_state.multisig,
@@ -754,7 +755,7 @@ impl App {
     #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
     async fn interval_access_applying_for_ipnft(
         &self,
-        ipnft_uid: IpnftUid,
+        ipnft_uid: String,
         ipnft_state: &IpnftState,
         ipnft_change: IpnftChanges,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
@@ -938,7 +939,7 @@ impl App {
     #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
     async fn initial_access_applying_for_ipnft(
         &self,
-        ipnft_uid: &IpnftUid,
+        ipnft_uid: &String,
         ipnft_state: &IpnftState,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
@@ -1169,7 +1170,7 @@ impl App {
 
 #[derive(Debug)]
 struct IndexingResponse {
-    ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+    ipnft_changes_map: HashMap<String, IpnftChanges>,
 }
 
 #[derive(Debug, Default)]
@@ -1188,7 +1189,7 @@ struct OwnerChanges {
 
 #[derive(Debug, Default)]
 struct IndexMultisigSafesResponse {
-    changed_ipnft_multisig_owners: HashMap<IpnftUid, Address>,
+    changed_ipnft_multisig_owners: HashMap<String, Address>,
 }
 
 #[derive(Debug)]
@@ -1197,7 +1198,7 @@ struct ChangedVersionedFile {
     change: IpnftDataRoomFileChange,
 }
 
-type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedFile>>;
+type ChangedVersionedFilePerProjectMap = HashMap<String, Vec<ChangedVersionedFile>>;
 
 #[derive(Debug)]
 enum IpnftDataRoomFileChange {

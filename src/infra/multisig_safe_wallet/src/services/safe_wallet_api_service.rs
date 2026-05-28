@@ -42,6 +42,8 @@ impl SafeWalletApiService {
         match chain_id {
             // https://docs.safe.global/core-api/transaction-service-reference/mainnet
             1 => Ok("https://safe-transaction-mainnet.safe.global"),
+            // https://docs.safe.global/core-api/transaction-service-reference/base-sepolia
+            84532 => Ok("https://safe-transaction-base-sepolia.safe.global"),
             // https://docs.safe.global/core-api/transaction-service-reference/sepolia
             11_155_111 => Ok("https://safe-transaction-sepolia.safe.global"),
 
