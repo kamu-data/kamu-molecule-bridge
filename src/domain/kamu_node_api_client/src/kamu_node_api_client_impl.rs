@@ -394,7 +394,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             return Ok(());
         }
 
-        // TODO: batches? we have ~700 holders for some IPNFT
+        // TODO: parallel batches
 
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),

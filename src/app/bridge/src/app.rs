@@ -776,7 +776,6 @@ impl App {
         let blockchain_based_operations = {
             // Prepare account information
             let mut current_owners = HashSet::new();
-            let mut holders = HashSet::new();
             let mut revoke_access_accounts = HashSet::new();
 
             // TODO: self.get_owners() in parallel for all possible multisig?
@@ -797,30 +796,19 @@ impl App {
                 revoke_access_accounts.extend(former_owners);
             }
 
-            for (holder, _balance) in ipnft_change.holder_balances_changes {
-                holders.insert(holder);
-            }
-
-            account_access_sanity_checks(
-                &current_owners,
-                &mut holders,
-                &mut revoke_access_accounts,
-            );
+            account_access_sanity_checks(&current_owners, &mut revoke_access_accounts);
 
             // Create accounts
             let CreateAccountsResponse {
                 current_owners_did_pkhs,
-                holders_did_pkhs,
                 revoke_access_accounts_did_pkh,
-            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+            } = self.create_did_pkh_accounts(current_owners, revoke_access_accounts)?;
 
-            let all_accounts_count = current_owners_did_pkhs.len()
-                + holders_did_pkhs.len()
-                + revoke_access_accounts_did_pkh.len();
+            let all_accounts_count =
+                current_owners_did_pkhs.len() + revoke_access_accounts_did_pkh.len();
             let accounts = {
                 let mut v = Vec::with_capacity(all_accounts_count);
                 v.extend(current_owners_did_pkhs.clone());
-                v.extend(holders_did_pkhs.clone());
                 v.extend(revoke_access_accounts_did_pkh.clone());
                 v
             };
@@ -834,7 +822,6 @@ impl App {
             build_operations(
                 project_dataset_ids,
                 &current_owners_did_pkhs,
-                &holders_did_pkhs,
                 &revoke_access_accounts_did_pkh,
             )
         };
@@ -843,16 +830,14 @@ impl App {
         let operations = if !ipnft_change.changed_files.is_empty() {
             let GetAccountsByIpnftStateResponse {
                 current_owners,
-                holders,
                 revoke_access_accounts,
             } = self
                 .get_accounts_by_ipnft_state(ipnft_state, multisig, to_block)
                 .await?;
             let CreateAccountsResponse {
                 current_owners_did_pkhs,
-                holders_did_pkhs,
                 revoke_access_accounts_did_pkh,
-            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+            } = self.create_did_pkh_accounts(current_owners, revoke_access_accounts)?;
 
             let mut changed_project_dataset_ids = ProjectDatasetIds::default();
 
@@ -885,7 +870,6 @@ impl App {
             let project_based_operations = build_operations(
                 changed_project_dataset_ids,
                 &current_owners_did_pkhs,
-                &holders_did_pkhs,
                 &revoke_access_accounts_did_pkh,
             );
 
@@ -957,7 +941,6 @@ impl App {
         // Prepare account information
         let GetAccountsByIpnftStateResponse {
             current_owners,
-            holders,
             revoke_access_accounts,
         } = self
             .get_accounts_by_ipnft_state(ipnft_state, multisig, to_block)
@@ -966,17 +949,14 @@ impl App {
         // Create accounts
         let CreateAccountsResponse {
             current_owners_did_pkhs,
-            holders_did_pkhs,
             revoke_access_accounts_did_pkh,
-        } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+        } = self.create_did_pkh_accounts(current_owners, revoke_access_accounts)?;
 
-        let all_accounts_count = current_owners_did_pkhs.len()
-            + holders_did_pkhs.len()
-            + revoke_access_accounts_did_pkh.len();
+        let all_accounts_count =
+            current_owners_did_pkhs.len() + revoke_access_accounts_did_pkh.len();
         let accounts = {
             let mut v = Vec::with_capacity(all_accounts_count);
             v.extend(current_owners_did_pkhs.clone());
-            v.extend(holders_did_pkhs.clone());
             v.extend(revoke_access_accounts_did_pkh.clone());
             v
         };
@@ -990,7 +970,6 @@ impl App {
         let operations = build_operations(
             project_dataset_ids,
             &current_owners_did_pkhs,
-            &holders_did_pkhs,
             &revoke_access_accounts_did_pkh,
         );
 
@@ -1096,19 +1075,12 @@ impl App {
     fn create_did_pkh_accounts(
         &self,
         current_owners: HashSet<Address>,
-        holders: HashSet<Address>,
         revoke_access_accounts: HashSet<Address>,
     ) -> eyre::Result<CreateAccountsResponse> {
         let mut current_owners_did_pkhs = Vec::with_capacity(current_owners.len());
         for current_owner in current_owners {
             let account = self.create_did_phk(current_owner)?;
             current_owners_did_pkhs.push(account);
-        }
-
-        let mut holders_did_pkhs = Vec::with_capacity(holders.len());
-        for holder in holders {
-            let account = self.create_did_phk(holder)?;
-            holders_did_pkhs.push(account);
         }
 
         let mut revoke_access_accounts_did_pkh = Vec::with_capacity(revoke_access_accounts.len());
@@ -1119,7 +1091,6 @@ impl App {
 
         Ok(CreateAccountsResponse {
             current_owners_did_pkhs,
-            holders_did_pkhs,
             revoke_access_accounts_did_pkh,
         })
     }
@@ -1131,7 +1102,6 @@ impl App {
         to_block: u64,
     ) -> eyre::Result<GetAccountsByIpnftStateResponse> {
         let mut current_owners = HashSet::new();
-        let mut holders = HashSet::new();
         let mut revoke_access_accounts = HashSet::new();
 
         // TODO: self.get_owners() in parallel for all possible multisig?
@@ -1152,17 +1122,10 @@ impl App {
             revoke_access_accounts.extend(former_owners);
         }
 
-        if let Some(token) = &ipnft_state.token {
-            for holder in token.holder_balances.keys() {
-                holders.insert(*holder);
-            }
-        }
-
-        account_access_sanity_checks(&current_owners, &mut holders, &mut revoke_access_accounts);
+        account_access_sanity_checks(&current_owners, &mut revoke_access_accounts);
 
         Ok(GetAccountsByIpnftStateResponse {
             current_owners,
-            holders,
             revoke_access_accounts,
         })
     }
@@ -1177,7 +1140,6 @@ struct IndexingResponse {
 struct IpnftChanges {
     minted_and_burnt: bool,
     owner_changes: OwnerChanges,
-    holder_balances_changes: HashMap<Address, U256>,
     changed_files: Vec<ChangedVersionedFile>,
 }
 
@@ -1219,7 +1181,6 @@ struct GetOwnersResponse {
 
 struct CreateAccountsResponse {
     current_owners_did_pkhs: Vec<DidPhk>,
-    holders_did_pkhs: Vec<DidPhk>,
     revoke_access_accounts_did_pkh: Vec<DidPhk>,
 }
 
@@ -1261,7 +1222,6 @@ fn build_added_file_entries_with_molecule_access_level_map(
 
 struct GetAccountsByIpnftStateResponse {
     current_owners: HashSet<Address>,
-    holders: HashSet<Address>,
     revoke_access_accounts: HashSet<Address>,
 }
 
@@ -1347,15 +1307,10 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
 
 fn account_access_sanity_checks(
     current_owners: &HashSet<Address>,
-    holders: &mut HashSet<Address>,
     revoke_access_accounts: &mut HashSet<Address>,
 ) {
     for owner in current_owners {
-        holders.remove(owner);
         revoke_access_accounts.remove(owner);
-    }
-    for holder in holders.iter() {
-        revoke_access_accounts.remove(holder);
     }
 }
 
@@ -1412,12 +1367,9 @@ fn build_operations(
         removed_file_dataset_ids,
     }: ProjectDatasetIds,
     current_owners_did_pkhs: &[DidPhk],
-    holders_did_pkhs: &[DidPhk],
     revoke_access_accounts_did_pkh: &[DidPhk],
 ) -> Vec<AccountDatasetRelationOperation> {
-    let all_accounts_count = current_owners_did_pkhs.len()
-        + holders_did_pkhs.len()
-        + revoke_access_accounts_did_pkh.len();
+    let all_accounts_count = current_owners_did_pkhs.len() + revoke_access_accounts_did_pkh.len();
     let all_datasets_count = core_file_dataset_ids.len()
         + owner_file_dataset_ids.len()
         + holder_file_dataset_ids.len()
@@ -1429,12 +1381,6 @@ fn build_operations(
         for owner in current_owners_did_pkhs {
             operations.push(AccountDatasetRelationOperation::maintainer_access(
                 owner.to_string(),
-                (*core_file_dataset_id).clone(),
-            ));
-        }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::reader_access(
-                holder.to_string(),
                 (*core_file_dataset_id).clone(),
             ));
         }
@@ -1452,12 +1398,6 @@ fn build_operations(
                 (*owner_file_dataset_id).clone(),
             ));
         }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::revoke_access(
-                holder.to_string(),
-                (*owner_file_dataset_id).clone(),
-            ));
-        }
         for revoke_access_account in revoke_access_accounts_did_pkh {
             operations.push(AccountDatasetRelationOperation::revoke_access(
                 revoke_access_account.to_string(),
@@ -1472,12 +1412,6 @@ fn build_operations(
                 (*holder_file_dataset_id).clone(),
             ));
         }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::reader_access(
-                holder.to_string(),
-                (*holder_file_dataset_id).clone(),
-            ));
-        }
         for revoke_access_account in revoke_access_accounts_did_pkh {
             operations.push(AccountDatasetRelationOperation::revoke_access(
                 revoke_access_account.to_string(),
@@ -1489,12 +1423,6 @@ fn build_operations(
         for owner in current_owners_did_pkhs {
             operations.push(AccountDatasetRelationOperation::revoke_access(
                 owner.to_string(),
-                (*removed_file_dataset_id).clone(),
-            ));
-        }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::revoke_access(
-                holder.to_string(),
                 (*removed_file_dataset_id).clone(),
             ));
         }
