@@ -24,9 +24,6 @@ use crate::http_server;
 use crate::http_server::{HttpServeFuture, StateRequester};
 use crate::metrics::BridgeMetrics;
 
-// TODO: Update when it's agreed
-const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
-
 pub struct App {
     config: Config,
 
@@ -799,12 +796,8 @@ impl App {
                 revoke_access_accounts.extend(former_owners);
             }
 
-            for (holder, balance) in ipnft_change.holder_balances_changes {
-                if balance > IPT_ACCESS_THRESHOLD {
-                    holders.insert(holder);
-                } else {
-                    revoke_access_accounts.insert(holder);
-                }
+            for (holder, _balance) in ipnft_change.holder_balances_changes {
+                holders.insert(holder);
             }
 
             account_access_sanity_checks(
@@ -1159,12 +1152,8 @@ impl App {
         }
 
         if let Some(token) = &ipnft_state.token {
-            for (holder, balance) in &token.holder_balances {
-                if *balance > IPT_ACCESS_THRESHOLD {
-                    holders.insert(*holder);
-                } else {
-                    revoke_access_accounts.insert(*holder);
-                }
+            for holder in token.holder_balances.keys() {
+                holders.insert(*holder);
             }
         }
 
