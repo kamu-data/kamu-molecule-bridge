@@ -30,7 +30,6 @@ const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
 
 pub struct App {
     config: Config,
-    ignore_projects_ipnft_uids: HashSet<String>,
 
     rpc_client: DynProvider,
     multisig_resolver: Arc<dyn MultisigResolver>,
@@ -131,14 +130,8 @@ impl App {
         metrics: BridgeMetrics,
         metrics_registry: prometheus::Registry,
     ) -> Self {
-        let ignore_projects_ipnft_uids = config
-            .ignore_projects_ipnft_uids
-            .clone()
-            .unwrap_or_default();
-
         Self {
             config,
-            ignore_projects_ipnft_uids,
             rpc_client,
             multisig_resolver,
             kamu_node_api_client,
@@ -829,7 +822,7 @@ impl App {
                     .projects_dataset_offset
                     .map(|off| off + 1)
                     .unwrap_or(0),
-                &self.ignore_projects_ipnft_uids,
+                self.config.ignore_ocl_ids.as_ref(),
             )
             .await?;
         let new_data_room_dataset_ids_with_offsets = new_projects_entries

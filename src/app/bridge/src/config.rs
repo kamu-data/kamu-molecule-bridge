@@ -43,9 +43,9 @@ pub struct Config {
     #[config(env = "KAMU_MOLECULE_BRIDGE_INDEXING_DELAY_BETWEEN_ITERATIONS_IN_SECS")]
     pub indexing_delay_between_iterations_in_secs: u64,
 
-    /// List of projects (identified by `ipnft_uid`) that should be ignored
-    #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS", parse_env = confique::env::parse::list_by_comma)]
-    pub ignore_projects_ipnft_uids: Option<std::collections::HashSet<String>>,
+    /// List of OCL ids that should be ignored
+    #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_OCL_IDS", parse_env = confique::env::parse::list_by_comma)]
+    pub ignore_ocl_ids: Option<std::collections::HashSet<String>>,
 }
 
 impl Config {

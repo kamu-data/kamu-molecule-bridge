@@ -117,10 +117,10 @@ impl KamuNodeApiClientImpl {
 #[async_trait]
 impl KamuNodeApiClient for KamuNodeApiClientImpl {
     #[tracing::instrument(level = "debug", skip_all, fields(offset = offset))]
-    async fn get_molecule_project_entries(
+    async fn get_molecule_project_entries<'a>(
         &self,
         offset: u64,
-        ignore_ipnft_uids: &HashSet<String>,
+        maybe_ignore_ocl_ids: Option<&'a HashSet<String>>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
@@ -148,7 +148,9 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
         let mut dtos = self.sql_query::<Vec<MoleculeProjectEntryDto>>(sql).await?;
 
-        dtos.retain(|p| !ignore_ipnft_uids.contains(&p.ipnft_uid));
+        if let Some(ignore_ocl_ids) = maybe_ignore_ocl_ids {
+            dtos.retain(|p| !ignore_ocl_ids.contains(&p.ipnft_uid));
+        }
 
         let project_entries = dtos
             .into_iter()
