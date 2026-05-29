@@ -626,7 +626,7 @@ impl App {
                 .get(&project_entry.ocl_id)
                 .is_none()
             {
-                tracing::info!("Skip project because it's not present in blockchain");
+                tracing::info!("Skip project: not present in blockchain");
                 continue;
             }
 
@@ -634,8 +634,13 @@ impl App {
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
             else {
+                tracing::info!("Skip project: data-room is empty");
                 continue;
             };
+
+            tracing::debug!(
+                "Continue: project is present in blockchain and has files in data-room"
+            );
 
             let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
                 &project_entry,
