@@ -54,11 +54,11 @@ pub struct AppState {
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
 
     on_chain_ocl_ownership_projection_map: OclOwnershipProjectionMap,
-    off_chain_ocl_project_map: HashMap<OclId, ProjectProjection>,
+    off_chain_ocl_project_map: HashMap<OclId, OffChainMoleculeProjectProjection>,
     latest_indexed_block_number: u64,
 
     multisig: HashMap<Address, Option<MultisigState>>,
-    // TODO: change struct
+
     access_changes: HashMap<DateTime<Utc>, AccessChanges>,
 }
 
@@ -85,7 +85,7 @@ struct MultisigState {
 }
 
 #[derive(Debug, Serialize)]
-struct ProjectProjection {
+struct OffChainMoleculeProjectProjection {
     entry: MoleculeProjectEntry,
     latest_data_room_offset: u64,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
@@ -246,6 +246,7 @@ impl App {
 
             for (ocl_id, changed_files) in versioned_file_changes_per_projects {
                 let ipnft_changes = ocl_changes_map.entry(ocl_id).or_default();
+                // TODO: do not reuse changed_files
                 ipnft_changes.changed_files = changed_files;
             }
 
@@ -656,7 +657,7 @@ impl App {
 
             app_state.off_chain_ocl_project_map.insert(
                 project_entry.ocl_id,
-                ProjectProjection {
+                OffChainMoleculeProjectProjection {
                     entry: project_entry,
                     latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
                     actual_files_map,
@@ -742,7 +743,7 @@ impl App {
         &self,
         ocl_id: OclId,
         on_chain_ocl_ownership: &OclOwnershipProjection,
-        off_chain_ocl_project: &ProjectProjection,
+        off_chain_ocl_project: &OffChainMoleculeProjectProjection,
         ocl_change: OclChange,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
@@ -914,7 +915,7 @@ impl App {
         &self,
         ocl_id: OclId,
         on_chain_ocl_ownership: &OclOwnershipProjection,
-        off_chain_ocl_project: &ProjectProjection,
+        off_chain_ocl_project: &OffChainMoleculeProjectProjection,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
@@ -1320,7 +1321,7 @@ fn partition_dataset_id_by_molecule_access_level<'a>(
     }
 }
 
-fn get_project_dataset_ids(off_chain_project: &ProjectProjection) -> ProjectDatasetIds<'_> {
+fn get_project_dataset_ids(off_chain_project: &OffChainMoleculeProjectProjection) -> ProjectDatasetIds<'_> {
     let mut owner_file_dataset_ids = Vec::new();
     let mut holder_file_dataset_ids = Vec::new();
 
