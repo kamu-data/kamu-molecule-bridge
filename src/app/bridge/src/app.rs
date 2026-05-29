@@ -12,6 +12,9 @@ use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
 use molecule_contracts::{LabNFT, Safe, safe};
 use molecule_ipnft::entities::*;
+use molecule_ocl::entities::{
+    OclId, OclOwnershipChange, OclOwnershipProjection, OclOwnershipProjectionMap, OclTransferEvent,
+};
 use multisig::services::MultisigResolver;
 use serde::Serialize;
 use serde_json::Value;
@@ -22,6 +25,15 @@ use crate::config::Config;
 use crate::http_server;
 use crate::http_server::{HttpServeFuture, StateRequester};
 use crate::metrics::BridgeMetrics;
+
+// TODO: Implement event sourcing: maintain single ordered log of events from two sources
+//       and derive state as a projection over that log.
+//
+//       Sources:
+//       - On-chain: LabNFT transfers, multisig changes (source of truth, indexed by block number)
+//       - Off-chain: OCL project changes (polled periodically, indexed by offset)
+//
+//       Each event should carry a timestamp for cross-source ordering.
 
 pub struct App {
     config: Config,
@@ -37,16 +49,22 @@ pub struct App {
     state: Arc<RwLock<AppState>>,
 }
 
+// todo group and resort fields
 #[derive(Debug, Default, Serialize)]
 pub struct AppState {
     projects_dataset_offset: Option<u64>,
+    // todo rename?
+    molecule_projects_last_requested_at: Option<DateTime<Utc>>,
 
     // TODO: stricter type?
     ipnft_state_map: HashMap<String, IpnftState>,
+
+    ocl_ownership_projection_map: OclOwnershipProjectionMap,
+    ocl_project_map: HashMap<OclId, ProjectProjection>,
     latest_indexed_block_number: u64,
 
-    molecule_projects_last_requested_at: Option<DateTime<Utc>>,
     multisig: HashMap<Address, Option<MultisigState>>,
+    // TODO: change struct
     access_changes: HashMap<DateTime<Utc>, AccessChanges>,
 }
 
@@ -59,8 +77,10 @@ struct AccessChanges {
 #[async_trait::async_trait]
 impl StateRequester for RwLock<AppState> {
     async fn request_as_json(&self) -> Value {
-        let readable_state = self.read().await;
-        serde_json::to_value(&*readable_state).unwrap()
+        // todo
+        todo!()
+        // let readable_state = self.read().await;
+        // serde_json::to_value(&*readable_state).unwrap()
     }
 }
 
@@ -220,6 +240,7 @@ impl App {
 
         let IndexingResponse {
             mut ipnft_changes_map,
+            ..
         } = self
             .indexing(&mut writable_state, latest_finalized_block_number)
             .await?;
@@ -260,37 +281,18 @@ impl App {
         app_state: &mut AppState,
         to_block: u64,
     ) -> eyre::Result<IndexingResponse> {
-        // TODO: use
-        let _labnft_events = self
+        // TODO parallel jobs index_labnft_contract && changed_ocl_multisig_owners
+
+        let ocl_transfer_events = self
             .index_labnft_contract(app_state.latest_indexed_block_number + 1, to_block)
             .await?;
+        let ocl_ownership_diff_map = app_state
+            .ocl_ownership_projection_map
+            .apply_events(ocl_transfer_events);
 
-        // // TODO: remove
-        // let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(vec![]);
-        // for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
-        //     let mut just_created = false;
-        //     let ipnft_state = app_state
-        //         .ipnft_state_map
-        //         .entry(*ipnft_uid)
-        //         .or_insert_with(|| {
-        //             just_created = true;
-        //             IpnftState {
-        //                 ipnft: event_projection.clone(),
-        //                 project: None,
-        //                 token: None,
-        //             }
-        //         });
-        //     // NOTE: No need to sync events the first time.
-        //     if !just_created {
-        //         IpnftEventProcessingStrategy.synchronize_ipnft_event_projections(
-        //             &mut ipnft_state.ipnft,
-        //             event_projection.clone(),
-        //         );
-        //     }
-        // }
-
+        // TODO breakdown to unblock parallel calls
         let IndexMultisigSafesResponse {
-            changed_ipnft_multisig_owners,
+            changed_ocl_multisig_owners,
         } = self
             .index_multisig_safes(
                 app_state,
@@ -301,37 +303,33 @@ impl App {
 
         app_state.latest_indexed_block_number = to_block;
 
-        // Populate IPNFT blockchain changes:
-        let mut ipnft_changes_map: HashMap<String, IpnftChanges> = HashMap::new();
-        // // 1. From IPNFT contract
-        // for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
-        //     let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
-        //
-        //     if ipnft_event_projection.minted && ipnft_event_projection.burnt {
-        //         // NOTE: IPNFT was burned before we could give access to anyone.
-        //         //       So there's no need to revoke access from anyone as well.
-        //         tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
-        //         ipnft_change.minted_and_burnt = true;
-        //         continue;
-        //     }
-        //
-        //     ipnft_change.owner_changes.current_owner = ipnft_event_projection.current_owner;
-        //     ipnft_change.owner_changes.former_owner = ipnft_event_projection.former_owner;
-        // }
-        // TODO: rewrite comments
-        // 2. From IPToken contracts
-        // 3. From multisig changes
-        for (ipnft_uid, owner) in changed_ipnft_multisig_owners {
-            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
+        // Populate blockchain changes:
 
+        // 1. From LabNFT contract
+        let mut ocl_changes_map: HashMap<_, _> = ocl_ownership_diff_map
+            .into_iter()
+            .map(|(ocl_id, ownership_change)| (ocl_id, IpnftChanges2::new(ownership_change)))
+            .collect();
+
+        // 2. From multisig changes
+        for (ocl_id, owner) in changed_ocl_multisig_owners {
+            let Some(ipnft_change) = ocl_changes_map.get_mut(&ocl_id) else {
+                // TODO: recheck
+                unreachable!();
+            };
+
+            // TODO: current_owner now is not Option<_> -- recheck logic
             // If the current owner changes, we will request new data from the multisig state if needed.
-            if ipnft_change.owner_changes.current_owner.is_none() {
-                // If there is no owner change, we need to trigger new permissions [re]grant in IPNFT.
-                ipnft_change.owner_changes.current_owner = Some(owner);
-            }
+            /*if ipnft_change.owner_changes.current_owner.is_none() {*/
+            // If there is no owner change, we need to trigger new permissions [re]grant in an OCL.
+            ipnft_change.owner_changes.current_owner = owner;
+            /*}*/
         }
 
-        Ok(IndexingResponse { ipnft_changes_map })
+        Ok(IndexingResponse {
+            ipnft_changes_map: HashMap::new(),
+            ocl_changes_map,
+        })
     }
 
     #[tracing::instrument(
@@ -411,6 +409,7 @@ impl App {
         self.rpc_client
             .get_logs_ext(
                 multisigs,
+                // TODO: static/const
                 HashSet::from_iter([
                     Safe::AddedOwner::SIGNATURE_HASH,
                     Safe::RemovedOwner::SIGNATURE_HASH,
@@ -421,6 +420,7 @@ impl App {
                     for log in logs_chunk.logs {
                         let safe_address = log.address();
 
+                        // TODO: move state from here
                         let Some(maybe_multisig_state) = app_state.multisig.get_mut(&safe_address) else {
                             unreachable!();
                         };
@@ -451,21 +451,21 @@ impl App {
             )
             .await?;
 
-        let changed_ipnft_multisig_owners = app_state.ipnft_state_map.iter().fold(
+        // TODO breakdown to unblock parallel calls
+        let changed_ocl_multisig_owners = app_state.ocl_ownership_projection_map.iter().fold(
             HashMap::new(),
-            |mut acc, (ipnft_uid, ipnft_state)| {
-                if let Some(owner) = ipnft_state.ipnft.current_owner
+            |mut acc, (ocl_id, ownership_projection)| {
+                if let Some(owner) = ownership_projection.current
                     && changed_multisigs.contains(&owner)
                 {
-                    // TODO: remove clone()
-                    acc.insert(ipnft_uid.clone(), owner);
+                    acc.insert(*ocl_id, owner);
                 }
                 acc
             },
         );
 
         Ok(IndexMultisigSafesResponse {
-            changed_ipnft_multisig_owners,
+            changed_ocl_multisig_owners,
         })
     }
 
@@ -1105,12 +1105,29 @@ impl App {
 #[derive(Debug)]
 struct IndexingResponse {
     ipnft_changes_map: HashMap<String, IpnftChanges>,
+    ocl_changes_map: HashMap<OclId, IpnftChanges2>,
 }
 
 #[derive(Debug, Default)]
 struct IpnftChanges {
     owner_changes: OwnerChanges,
     changed_files: Vec<ChangedVersionedFile>,
+}
+
+// TODO: rename
+#[derive(Debug)]
+struct IpnftChanges2 {
+    owner_changes: OclOwnershipChange,
+    changed_files: Vec<ChangedVersionedFile>,
+}
+
+impl IpnftChanges2 {
+    fn new(owner_changes: OclOwnershipChange) -> Self {
+        Self {
+            owner_changes,
+            changed_files: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1121,7 +1138,8 @@ struct OwnerChanges {
 
 #[derive(Debug, Default)]
 struct IndexMultisigSafesResponse {
-    changed_ipnft_multisig_owners: HashMap<String, Address>,
+    // TODO is value the new owner?
+    changed_ocl_multisig_owners: HashMap<OclId, Address>,
 }
 
 #[derive(Debug)]
@@ -1423,6 +1441,7 @@ fn parse_safe_added_owner_event(log: &Log) -> eyre::Result<Address> {
     Ok(added_owner)
 }
 
+// TODO: move to molecule-contracts crate
 fn parse_safe_removed_owner_event(log: &Log) -> eyre::Result<Address> {
     // First, try to parse the actual event signature (indexed "owner" field), ...
     let removed_owner = if let Ok(event) = Safe::RemovedOwner::decode_log(log) {
