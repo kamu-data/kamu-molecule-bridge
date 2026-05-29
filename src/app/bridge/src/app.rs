@@ -1321,7 +1321,9 @@ fn partition_dataset_id_by_molecule_access_level<'a>(
     }
 }
 
-fn get_project_dataset_ids(off_chain_project: &OffChainMoleculeProjectProjection) -> ProjectDatasetIds<'_> {
+fn get_project_dataset_ids(
+    off_chain_project: &OffChainMoleculeProjectProjection,
+) -> ProjectDatasetIds<'_> {
     let mut owner_file_dataset_ids = Vec::new();
     let mut holder_file_dataset_ids = Vec::new();
 
