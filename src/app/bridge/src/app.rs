@@ -347,7 +347,7 @@ impl App {
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> eyre::Result<Vec<LabNFT::OclTransfer>> {
+    ) -> eyre::Result<Vec<OclTransferEvent>> {
         // TODO: static/const
         let event_signatures = HashSet::from_iter([LabNFT::OclTransfer::SIGNATURE_HASH]);
 
@@ -367,7 +367,7 @@ impl App {
                                 let log_event = LabNFT::OclTransfer::decode_log(&log.inner)?;
                                 let event = log_event.data;
 
-                                events.push(event);
+                                events.push(event.into());
                             }
                             unknown_event_signature_hash => {
                                 bail!(
