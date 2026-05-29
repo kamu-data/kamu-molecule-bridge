@@ -482,7 +482,7 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
         Ok(MoleculeProjectEntry {
             offset: self.offset,
             op: self.op.try_into()?,
-            ocl_id: self.ocl_id,
+            ocl_id: self.ocl_id.parse()?,
             symbol: self.symbol,
             project_account_id: self.project_account_id,
             data_room_dataset_id: self.data_room_dataset_id,

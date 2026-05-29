@@ -2777,7 +2777,7 @@ dependencies = [
  "graphql_client",
  "indoc",
  "mockall",
- "molecule_ipnft",
+ "molecule_ocl",
  "pretty_assertions",
  "prometheus",
  "reqwest",
@@ -2975,6 +2975,18 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "molecule_ocl"
+version = "0.5.3"
+dependencies = [
+ "alloy",
+ "molecule_contracts",
+ "nutype",
+ "pretty_assertions",
+ "rstest",
+ "serde",
 ]
 
 [[package]]

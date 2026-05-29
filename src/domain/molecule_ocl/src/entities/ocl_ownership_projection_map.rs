@@ -65,6 +65,14 @@ impl OclOwnershipProjectionMap {
     }
 }
 
+impl std::ops::Deref for OclOwnershipProjectionMap {
+    type Target = HashMap<OclId, OclOwnershipProjection>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+
 // Helpers
 
 type CompressedEvents = HashMap<OclId, Address>;
