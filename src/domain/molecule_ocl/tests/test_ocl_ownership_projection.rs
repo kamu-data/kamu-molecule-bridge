@@ -1,6 +1,8 @@
 use alloy::primitives::{Address, address};
-use molecule_ocl::entities::OclOwnershipProjection;
+use molecule_ocl::entities::{OclId, OclOwnershipProjection, OclTransferEvent, compress_events};
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
+use std::str::FromStr;
 
 const ADDR_A: Address = address!("0x1111111111111111111111111111111111111111");
 const ADDR_B: Address = address!("0x2222222222222222222222222222222222222222");
@@ -74,4 +76,91 @@ fn test_apply_transfer(#[case] steps: Vec<ApplyTransferStep>) {
         assert_eq!(step.expected_projection, projection);
         assert_eq!(step.expected_previous_owner, previous_owner);
     }
+}
+
+struct CompressEventsCase {
+    events: Vec<OclTransferEvent>,
+    expected: HashMap<OclId, Address>,
+}
+
+#[rstest::rstest]
+#[case::empty_events(CompressEventsCase {
+    events: vec![],
+    expected: HashMap::new(),
+})]
+#[case::single_event(CompressEventsCase {
+    events: vec![OclTransferEvent {
+        ocl_id: ocl_id_1(),
+        from: Address::ZERO,
+        to: ADDR_A,
+    }],
+    expected: HashMap::from([(ocl_id_1(), ADDR_A)]),
+})]
+#[case::last_wins_same_ocl_id(CompressEventsCase {
+    // A -> B -> C -> A -> B -> A -> B
+    events: vec![
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: ADDR_A,
+            to: ADDR_B,
+        },
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: ADDR_B,
+            to: ADDR_C,
+        },
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: ADDR_C,
+            to: ADDR_A,
+        },
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: ADDR_A,
+            to: ADDR_B,
+        },
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: ADDR_B,
+            to: ADDR_A,
+        },
+    ],
+    expected: HashMap::from([(ocl_id_1(), ADDR_A)]),
+})]
+#[case::interleaved_multiple_ocl_ids(CompressEventsCase {
+    events: vec![
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: Address::ZERO,
+            to: ADDR_A,
+        },
+        OclTransferEvent {
+            ocl_id: ocl_id_2(),
+            from: Address::ZERO,
+            to: ADDR_B,
+        },
+        OclTransferEvent {
+            ocl_id: ocl_id_1(),
+            from: ADDR_A,
+            to: ADDR_C,
+        },
+    ],
+    expected: HashMap::from([(ocl_id_1(), ADDR_C), (ocl_id_2(), ADDR_B)]),
+})]
+fn test_compress_events(#[case] case: CompressEventsCase) {
+    let actual = compress_events(case.events);
+
+    assert_eq!(case.expected, actual);
+}
+
+// Helpers
+
+fn ocl_id_1() -> OclId {
+    const RAW: &str = "0x0101000000000000000000a1117b215dcd666dd847cfa84721480d316440faa9";
+    OclId::from_str(RAW).unwrap()
+}
+
+fn ocl_id_2() -> OclId {
+    const RAW: &str = "0x0101000000000000000000992399d367a2fa6f971dbc1647f81f999c19a70d67";
+    OclId::from_str(RAW).unwrap()
 }

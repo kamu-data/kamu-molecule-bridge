@@ -2,7 +2,12 @@ pub mod prelude;
 
 use alloy::sol;
 
-sol!(LabNFT, "abis/LabNFT.json");
+sol!(
+    // Generate Debug impls
+    #[sol(all_derives = true)]
+    LabNFT,
+    "abis/LabNFT.json"
+);
 
 pub mod safe {
     use super::*;

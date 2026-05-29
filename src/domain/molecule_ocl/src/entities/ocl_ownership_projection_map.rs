@@ -67,6 +67,7 @@ impl OclOwnershipProjectionMap {
 
 type CompressedEvents = HashMap<OclId, Address>;
 
+// TODO: verify from/previous owner?
 // Public only for tests
 pub fn compress_events(events: Vec<OclTransferEvent>) -> CompressedEvents {
     let mut res = HashMap::new();
