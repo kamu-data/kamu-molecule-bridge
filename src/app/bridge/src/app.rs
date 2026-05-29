@@ -737,11 +737,6 @@ impl App {
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
-        if ipnft_change.minted_and_burnt {
-            // Nothing to do
-            return Ok(Vec::new());
-        }
-
         let Some(project) = &ipnft_state.project else {
             tracing::info!("Skip IPNFT since there is no project created for it");
             debug_assert!(ipnft_change.changed_files.is_empty());
@@ -1114,7 +1109,6 @@ struct IndexingResponse {
 
 #[derive(Debug, Default)]
 struct IpnftChanges {
-    minted_and_burnt: bool,
     owner_changes: OwnerChanges,
     changed_files: Vec<ChangedVersionedFile>,
 }
