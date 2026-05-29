@@ -307,7 +307,6 @@ impl App {
             if ocl_change.owner_changes.is_none() {
                 // If there is no owner change, we need to trigger new permissions [re]grant in an OCL.
                 ocl_change.owner_changes = Some(OclOwnershipChange {
-                    // TODO: recheck if this is correct
                     former_owner: None,
                     current_owner: owner,
                 });
@@ -1137,8 +1136,8 @@ impl OclChange {
 
 #[derive(Debug, Default)]
 struct IndexMultisigSafesResponse {
-    // TODO is value the new owner?
-    changed_ocl_multisig_owners: HashMap<OclId, Address>,
+    changed_ocl_multisig_owners:
+        HashMap<OclId, /* updated multisig (changed owners) */ Address>,
 }
 
 #[derive(Debug)]
