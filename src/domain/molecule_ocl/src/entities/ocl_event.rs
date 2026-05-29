@@ -3,6 +3,7 @@ use molecule_contracts::LabNFT;
 
 use crate::entities::OclId;
 
+// NOTE: reduced type (w/o tokenId)
 #[derive(Debug)]
 pub struct OclTransferEvent {
     pub ocl_id: OclId,
@@ -10,4 +11,12 @@ pub struct OclTransferEvent {
     pub to: Address,
 }
 
-// pub type OclTransferEvent = LabNFT::OclTransfer;
+impl From<LabNFT::OclTransfer> for OclTransferEvent {
+    fn from(value: LabNFT::OclTransfer) -> Self {
+        OclTransferEvent {
+            ocl_id: value.oclId.into(),
+            from: value.from,
+            to: value.to,
+        }
+    }
+}
