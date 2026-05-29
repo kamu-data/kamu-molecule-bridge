@@ -876,7 +876,7 @@ impl App {
             };
 
             let operations = self
-                .initial_access_applying_for_ipnft(
+                .initial_access_applying_for_ocl(
                     *ocl_id,
                     on_chain_ocl_ownership,
                     off_chain_ocl_project,
@@ -912,7 +912,7 @@ impl App {
 
     // TODO: is symbol needed like before?
     #[tracing::instrument(level = "info", skip_all, fields(ocl_id = %ocl_id))]
-    async fn initial_access_applying_for_ipnft(
+    async fn initial_access_applying_for_ocl(
         &self,
         ocl_id: OclId,
         on_chain_ocl_ownership: &OclOwnershipProjection,
