@@ -227,7 +227,7 @@ impl App {
         }
 
         let IndexingResponse {
-            mut ocl_changes_map,
+            mut on_chain_ocl_changes_map,
         } = self
             .indexing(&mut writable_state, latest_finalized_block_number)
             .await?;
@@ -245,9 +245,9 @@ impl App {
                 self.load_molecule_projects(&mut writable_state).await?;
 
             for (ocl_id, changed_files) in versioned_file_changes_per_projects {
-                let ipnft_changes = ocl_changes_map.entry(ocl_id).or_default();
-                // TODO: do not reuse changed_files
-                ipnft_changes.changed_files = changed_files;
+                let ocl_changes = on_chain_ocl_changes_map.entry(ocl_id).or_default();
+                // TODO: do not reuse changed_files field -- add a new struct
+                ocl_changes.changed_files = changed_files;
             }
 
             writable_state.molecule_projects_last_requested_at = Some(Utc::now());
@@ -255,7 +255,7 @@ impl App {
 
         self.interval_access_applying(
             &mut writable_state,
-            ocl_changes_map,
+            on_chain_ocl_changes_map,
             next_block_for_indexing,
         )
         .await?;
@@ -313,7 +313,9 @@ impl App {
             }
         }
 
-        Ok(IndexingResponse { ocl_changes_map })
+        Ok(IndexingResponse {
+            on_chain_ocl_changes_map: ocl_changes_map,
+        })
     }
 
     #[tracing::instrument(
@@ -1115,7 +1117,7 @@ impl App {
 
 #[derive(Debug)]
 struct IndexingResponse {
-    ocl_changes_map: HashMap<OclId, OclChange>,
+    on_chain_ocl_changes_map: HashMap<OclId, OclChange>,
 }
 
 #[derive(Debug, Default)]
