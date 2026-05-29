@@ -1,4 +1,5 @@
 use alloy::primitives::Address;
+use molecule_contracts::LabNFT;
 
 use crate::entities::OclId;
 
@@ -8,3 +9,5 @@ pub struct OclTransferEvent {
     pub from: Address,
     pub to: Address,
 }
+
+// pub type OclTransferEvent = LabNFT::OclTransfer;

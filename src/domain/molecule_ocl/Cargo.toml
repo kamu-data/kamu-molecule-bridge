@@ -29,9 +29,10 @@ serde = [
 
 
 [dependencies]
+molecule_contracts = { workspace = true }
+
 alloy = { workspace = true }
 nutype = { workspace = true }
-regex = { workspace = true }
 
 # Optional
 serde = { optional = true, workspace = true }
