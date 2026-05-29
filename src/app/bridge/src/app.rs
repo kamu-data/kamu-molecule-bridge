@@ -823,7 +823,7 @@ impl App {
 
             for changed_file in &ocl_change.changed_files {
                 match changed_file.change {
-                    IpnftDataRoomFileChange::Added(molecule_access_level) => {
+                    DataRoomFileChange::Added(molecule_access_level) => {
                         partition_dataset_id_by_molecule_access_level(
                             &changed_file.dataset_id,
                             molecule_access_level,
@@ -831,12 +831,12 @@ impl App {
                             &mut changed_project_dataset_ids.holder_file_dataset_ids,
                         );
                     }
-                    IpnftDataRoomFileChange::Removed => {
+                    DataRoomFileChange::Removed => {
                         changed_project_dataset_ids
                             .removed_file_dataset_ids
                             .push(&changed_file.dataset_id);
                     }
-                    IpnftDataRoomFileChange::MoleculeAccessLevelChanged { from: _, to } => {
+                    DataRoomFileChange::MoleculeAccessLevelChanged { from: _, to } => {
                         partition_dataset_id_by_molecule_access_level(
                             &changed_file.dataset_id,
                             to,
@@ -1145,14 +1145,13 @@ struct IndexMultisigSafesResponse {
 #[derive(Debug)]
 struct ChangedVersionedFile {
     dataset_id: DatasetID,
-    change: IpnftDataRoomFileChange,
+    change: DataRoomFileChange,
 }
 
 type ChangedVersionedFilePerProjectMap = HashMap<OclId, Vec<ChangedVersionedFile>>;
 
-// TODO: rename
 #[derive(Debug)]
-enum IpnftDataRoomFileChange {
+enum DataRoomFileChange {
     Added(MoleculeAccessLevel),
     Removed,
     MoleculeAccessLevelChanged {
@@ -1238,9 +1237,9 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
 
         // NOTE: If the project is deleted, consider all files deleted as well.
         let change = if project_entry.is_deleted() {
-            IpnftDataRoomFileChange::Removed
+            DataRoomFileChange::Removed
         } else {
-            IpnftDataRoomFileChange::Added(molecule_access_levels)
+            DataRoomFileChange::Added(molecule_access_levels)
         };
 
         changes.push(ChangedVersionedFile {
@@ -1251,7 +1250,7 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
     for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
         changes.push(ChangedVersionedFile {
             dataset_id: removed_dataset_id.clone(),
-            change: IpnftDataRoomFileChange::Removed,
+            change: DataRoomFileChange::Removed,
         });
     }
 
@@ -1279,12 +1278,12 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
         if project_entry.is_deleted() {
             changes.push(ChangedVersionedFile {
                 dataset_id: dataset_id.clone(),
-                change: IpnftDataRoomFileChange::Removed,
+                change: DataRoomFileChange::Removed,
             });
         } else if current_access != new_access {
             changes.push(ChangedVersionedFile {
                 dataset_id: dataset_id.clone(),
-                change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                change: DataRoomFileChange::MoleculeAccessLevelChanged {
                     from: current_access,
                     to: new_access,
                 },
