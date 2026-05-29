@@ -48,16 +48,12 @@ pub struct App {
     state: Arc<RwLock<AppState>>,
 }
 
-// todo group and resort fields
 #[derive(Debug, Default, Serialize)]
 pub struct AppState {
-    projects_dataset_offset: Option<u64>,
-    // todo rename?
+    molecule_projects_dataset_offset: Option<u64>,
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
 
-    // TODO: add onchain_
-    ocl_ownership_projection_map: OclOwnershipProjectionMap,
-    // TODO: add offchain_
+    on_chain_ocl_ownership_projection_map: OclOwnershipProjectionMap,
     off_chain_ocl_project_map: HashMap<OclId, ProjectProjection>,
     latest_indexed_block_number: u64,
 
@@ -278,7 +274,7 @@ impl App {
             .index_labnft_contract(app_state.latest_indexed_block_number + 1, to_block)
             .await?;
         let ocl_ownership_diff_map = app_state
-            .ocl_ownership_projection_map
+            .on_chain_ocl_ownership_projection_map
             .apply_events(ocl_transfer_events);
 
         // TODO breakdown to unblock parallel calls
@@ -440,17 +436,17 @@ impl App {
             .await?;
 
         // TODO breakdown to unblock parallel calls
-        let changed_ocl_multisig_owners = app_state.ocl_ownership_projection_map.iter().fold(
-            HashMap::new(),
-            |mut acc, (ocl_id, ownership_projection)| {
+        let changed_ocl_multisig_owners = app_state
+            .on_chain_ocl_ownership_projection_map
+            .iter()
+            .fold(HashMap::new(), |mut acc, (ocl_id, ownership_projection)| {
                 if let Some(owner) = ownership_projection.current
                     && changed_multisigs.contains(&owner)
                 {
                     acc.insert(*ocl_id, owner);
                 }
                 acc
-            },
-        );
+            });
 
         Ok(IndexMultisigSafesResponse {
             changed_ocl_multisig_owners,
@@ -489,7 +485,7 @@ impl App {
             .kamu_node_api_client
             .get_molecule_project_entries(
                 app_state
-                    .projects_dataset_offset
+                    .molecule_projects_dataset_offset
                     .map(|offset| offset + 1)
                     .unwrap_or(0),
                 self.config.ignore_ocl_ids.as_ref(),
@@ -607,7 +603,7 @@ impl App {
 
         // III. Process new project entries.
         // NOTE: Projects are sorted, so we can simply assign each new value.
-        let mut new_projects_dataset_offset = app_state.projects_dataset_offset;
+        let mut new_molecule_projects_dataset_offset = app_state.molecule_projects_dataset_offset;
 
         for project_entry in new_projects_entries {
             let mut detected_changes = Vec::new();
@@ -619,10 +615,10 @@ impl App {
             )
             .entered();
 
-            new_projects_dataset_offset = Some(project_entry.offset);
+            new_molecule_projects_dataset_offset = Some(project_entry.offset);
 
             if app_state
-                .ocl_ownership_projection_map
+                .on_chain_ocl_ownership_projection_map
                 .get(&project_entry.ocl_id)
                 .is_none()
             {
@@ -669,7 +665,7 @@ impl App {
             );
         }
 
-        app_state.projects_dataset_offset = new_projects_dataset_offset;
+        app_state.molecule_projects_dataset_offset = new_molecule_projects_dataset_offset;
 
         Ok(detected_changes_map)
     }
@@ -690,7 +686,8 @@ impl App {
         for (ocl_id, ocl_change) in ocl_changes_map {
             // TODO: is that actual?
             // NOTE: These are post-indexing updates, so all this data must be present.
-            let Some(on_chain_ocl_ownership) = app_state.ocl_ownership_projection_map.get(&ocl_id)
+            let Some(on_chain_ocl_ownership) =
+                app_state.on_chain_ocl_ownership_projection_map.get(&ocl_id)
             else {
                 bail!("IPNFT state should be present: {ocl_id}")
             };
@@ -869,7 +866,7 @@ impl App {
 
     #[tracing::instrument(level = "info", skip_all)]
     async fn initial_access_applying(&self, app_state: &mut AppState) -> eyre::Result<()> {
-        for (ocl_id, on_chain_ocl_ownership) in &*app_state.ocl_ownership_projection_map {
+        for (ocl_id, on_chain_ocl_ownership) in &*app_state.on_chain_ocl_ownership_projection_map {
             let Some(off_chain_ocl_project) = app_state.off_chain_ocl_project_map.get(ocl_id)
             else {
                 tracing::info!("Skip OCL since there is no project created for it");
@@ -1121,7 +1118,6 @@ struct IndexingResponse {
     ocl_changes_map: HashMap<OclId, OclChange>,
 }
 
-// TODO: rename
 #[derive(Debug, Default)]
 struct OclChange {
     owner_changes: Option<OclOwnershipChange>,
