@@ -8,7 +8,8 @@ static OCL_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^0x[0-9a-f]
 
 #[nutype::nutype(
     validate(regex = OCL_ID_REGEX),
-    derive(Debug, Display, AsRef, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, FromStr)
+    derive(Debug, Display, AsRef, Clone, Eq, PartialEq, Hash, FromStr),
+    cfg_attr(feature = "serde", derive(Serialize, Deserialize)),
 )]
 pub struct OclId(String);
 

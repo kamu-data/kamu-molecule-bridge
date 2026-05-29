@@ -23,13 +23,18 @@ doctest = false
 [features]
 default = []
 
+serde = [
+    "dep:serde",
+]
+
 
 [dependencies]
 alloy = { workspace = true }
-color-eyre = { workspace = true }
 nutype = { workspace = true }
 regex = { workspace = true }
-serde = { workspace = true }
+
+# Optional
+serde = { optional = true, workspace = true }
 
 
 [dev-dependencies]

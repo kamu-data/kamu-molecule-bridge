@@ -7,6 +7,7 @@ use crate::entities::{
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OclOwnershipProjectionMap {
     entries: HashMap<OclId, OclOwnershipProjection>,
 }

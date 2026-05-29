@@ -1,6 +1,7 @@
 use alloy::primitives::Address;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OclOwnershipProjection {
     pub current: Option<Address>,
     pub previous: Vec<Address>,
@@ -14,8 +15,7 @@ impl OclOwnershipProjection {
         }
     }
 
-    // todo test
-    // todo incorrect events
+    // TODO: verify from/previous owner?
     pub fn apply_transfer(&mut self, new_owner: Address) -> Option<Address> {
         if self.current == Some(new_owner) {
             return None;

@@ -2754,6 +2754,7 @@ dependencies = [
  "kamu_node_api_client",
  "molecule_contracts",
  "molecule_ipnft",
+ "molecule_ocl",
  "multisig",
  "multisig_safe_wallet",
  "observability",
