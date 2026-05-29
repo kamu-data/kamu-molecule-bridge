@@ -11,7 +11,6 @@ use color_eyre::eyre::bail;
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
 use molecule_contracts::{LabNFT, Safe, safe};
-use molecule_ipnft::entities::*;
 use molecule_ocl::entities::{
     OclId, OclOwnershipChange, OclOwnershipProjection, OclOwnershipProjectionMap, OclTransferEvent,
 };
@@ -81,12 +80,6 @@ impl StateRequester for RwLock<AppState> {
         // let readable_state = self.read().await;
         // serde_json::to_value(&*readable_state).unwrap()
     }
-}
-
-#[derive(Debug, Serialize)]
-struct IpnftState {
-    ipnft: IpnftEventProjection,
-    project: Option<ProjectProjection>,
 }
 
 #[derive(Debug, Serialize)]

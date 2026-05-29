@@ -4,7 +4,6 @@ members = [
     "./src/app/bridge",
     # Domain
     "./src/domain/kamu_node_api_client",
-    "./src/domain/molecule_ipnft",
     "./src/domain/molecule_ocl",
     "./src/domain/multisig",
     # Infra
@@ -34,8 +33,6 @@ publish = false
 bridge = { path = "src/app/bridge", default-features = false }
 # Domain
 kamu_node_api_client = { path = "src/domain/kamu_node_api_client", default-features = false }
-# todo remove
-molecule_ipnft = { path = "src/domain/molecule_ipnft", default-features = false }
 molecule_ocl = { path = "src/domain/molecule_ocl", default-features = false }
 multisig = { path = "src/domain/multisig", default-features = false }
 # Infra

@@ -30,7 +30,8 @@ impl OclOwnershipProjectionMap {
         for (ocl_id, last_owner) in compressed_events {
             use std::collections::hash_map::Entry;
 
-            match self.entries.entry(ocl_id.clone()) {
+            // todo and_modify().or_insert_with(|| OclOwnershipProjection::new(last_owner))
+            match self.entries.entry(ocl_id) {
                 Entry::Occupied(mut e) => {
                     let projection = e.get_mut();
                     let Some(former_owner) = projection.apply_transfer(last_owner) else {

@@ -2753,7 +2753,6 @@ dependencies = [
  "dotenv",
  "kamu_node_api_client",
  "molecule_contracts",
- "molecule_ipnft",
  "molecule_ocl",
  "multisig",
  "multisig_safe_wallet",
@@ -2963,18 +2962,6 @@ name = "molecule_contracts"
 version = "0.5.3"
 dependencies = [
  "alloy",
-]
-
-[[package]]
-name = "molecule_ipnft"
-version = "0.5.3"
-dependencies = [
- "alloy",
- "color-eyre",
- "pretty_assertions",
- "serde",
- "tokio",
- "tracing",
 ]
 
 [[package]]
