@@ -808,7 +808,7 @@ impl App {
 
         // 2. Process the project's changes.
         let operations = if !ocl_change.changed_files.is_empty() {
-            let GetAccountsByIpnftStateResponse {
+            let GetAccountsByOclProjectResponse {
                 current_owners,
                 revoke_access_accounts,
             } = self
@@ -921,7 +921,7 @@ impl App {
         to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
         // Prepare account information
-        let GetAccountsByIpnftStateResponse {
+        let GetAccountsByOclProjectResponse {
             current_owners,
             revoke_access_accounts,
         } = self
@@ -1082,7 +1082,7 @@ impl App {
         on_chain_ocl_ownership: &OclOwnershipProjection,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
-    ) -> eyre::Result<GetAccountsByIpnftStateResponse> {
+    ) -> eyre::Result<GetAccountsByOclProjectResponse> {
         let mut current_owners = HashSet::new();
         let mut revoke_access_accounts = HashSet::new();
 
@@ -1108,7 +1108,7 @@ impl App {
 
         account_access_sanity_checks(&current_owners, &mut revoke_access_accounts);
 
-        Ok(GetAccountsByIpnftStateResponse {
+        Ok(GetAccountsByOclProjectResponse {
             current_owners,
             revoke_access_accounts,
         })
@@ -1208,8 +1208,7 @@ fn build_added_file_entries_with_molecule_access_level_map(
         .collect()
 }
 
-// TODO: rename
-struct GetAccountsByIpnftStateResponse {
+struct GetAccountsByOclProjectResponse {
     current_owners: HashSet<Address>,
     revoke_access_accounts: HashSet<Address>,
 }
