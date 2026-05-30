@@ -16,7 +16,7 @@ Recommendation: for ease of reading, use the following format:
 
 ## [0.6.0] - 2026-05-30
 ### Added
-- Molecule v3: Migration from IPNFT to OCL (#45).
+- Molecule v3: Migration from IPNFT to OCL (#47).
 
 ## [0.5.3] - 2026-01-28
 ### Fixed
