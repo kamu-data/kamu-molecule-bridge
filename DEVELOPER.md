@@ -13,12 +13,11 @@ The `build` CI action in GitHub will trigger on every commit to run linting and 
 Going into the [IPNFT repository](https://github.com/moleculeprotocol/IPNFT), you need to generate ABI using actual code of smart contracts. 
 To achieve this, you will need the following commands:
 
-```shell
-# cd IPNFT repo
-forge inspect src/IPNFT.sol abi --json > IPNFT.json
-forge inspect src/IPToken.sol abi --json > IPToken.json
-forge inspect src/Tokenizer.sol abi --json > Tokenizer.json
+1. LabNFT ABI: 
+- The ABI can be retrieved from the [latest deployment document](https://github.com/moleculeprotocol/onchainlabs/blob/main/deployments/abi/LabNFT.md).
 
+2. Safe contracts (multisig) ABI:
+```shell
 # cd safe-contracts repo (https://github.com/safe-global/safe-smart-account)
 git checkout release/v1.3.0
 forge inspect ./contracts/GnosisSafe.sol abi --json > Safe_1.3.0.json # not indexed events
