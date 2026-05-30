@@ -1,11 +1,12 @@
+use std::collections::HashSet;
+
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, B256};
 use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::{Filter, FilterSet, Log};
 use alloy::transports::{RpcError, TransportErrorKind};
 use async_trait::async_trait;
-use color_eyre::eyre::{self, ContextCompat, bail};
-use std::collections::HashSet;
+use eyre::{ContextCompat, bail};
 
 pub struct LogsChunk {
     pub from_block: u64,

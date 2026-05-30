@@ -10,7 +10,6 @@ use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Log;
 use alloy::sol_types::SolEvent;
 use alloy_ext::prelude::*;
-use color_eyre::eyre;
 use molecule_contracts::LabNFT;
 
 const PRINT_EVENTS: bool = false;

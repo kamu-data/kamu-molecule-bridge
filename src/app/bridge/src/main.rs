@@ -3,7 +3,6 @@ use std::sync::Arc;
 use alloy::providers::fillers::ChainIdFiller;
 use alloy::providers::{DynProvider, Provider};
 use clap::Parser as _;
-use color_eyre::eyre;
 use kamu_molecule_bridge::cli;
 use kamu_molecule_bridge::metrics::BridgeMetrics;
 use kamu_molecule_bridge::prelude::*;

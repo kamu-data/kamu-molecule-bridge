@@ -28,8 +28,9 @@ testing = ["dep:mockall"]
 [dependencies]
 alloy = { workspace = true }
 async-trait = { workspace = true }
-color-eyre = { workspace = true }
+eyre = { workspace = true }
 
+# Optional
 mockall = { optional = true, workspace = true }
 
 

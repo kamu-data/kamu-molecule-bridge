@@ -1,4 +1,3 @@
-use color_eyre::eyre;
 use std::net::SocketAddr;
 use std::sync::Arc;
 

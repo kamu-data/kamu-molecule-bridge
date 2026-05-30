@@ -39,7 +39,7 @@ multisig_safe_wallet = { workspace = true }
 alloy = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
-color-eyre = { workspace = true }
+eyre = { workspace = true }
 prometheus = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
@@ -61,7 +61,10 @@ clap = { version = "4", default-features = false, features = [
     "wrap_help",
 ] }
 dotenv = { version = "0.15", default-features = false, features = [] }
-
+color-eyre = { version = "0.6", default-features = false, features = [
+    "capture-spantrace",
+    "track-caller",
+] }
 
 [dev-dependencies]
 

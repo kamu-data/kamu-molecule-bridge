@@ -1,8 +1,7 @@
 use std::fmt::{Display, Formatter};
 
 use alloy::primitives::Address;
-use color_eyre::eyre;
-use color_eyre::eyre::bail;
+use eyre::bail;
 
 #[derive(Debug, Copy, Clone)]
 pub struct DidPhk {

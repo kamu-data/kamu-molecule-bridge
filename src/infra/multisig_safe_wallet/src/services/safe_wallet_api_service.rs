@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use alloy::primitives::Address;
 use alloy::providers::{DynProvider, Provider};
 use async_trait::async_trait;
-use color_eyre::eyre::{self, bail};
+use eyre::bail;
 use multisig::services::MultisigResolver;
 use serde::{Deserialize, Serialize};
 

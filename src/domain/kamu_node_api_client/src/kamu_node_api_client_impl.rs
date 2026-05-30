@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use color_eyre::eyre;
-use color_eyre::eyre::bail;
+use eyre::bail;
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -389,7 +388,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(did_pkhs_count = did_pkhs.len()))]
-    async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
+    async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> eyre::Result<()> {
         if self.dry_run {
             return Ok(());
         }
@@ -406,7 +405,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn apply_account_dataset_relations(
         &self,
         operations: Vec<AccountDatasetRelationOperation>,
-    ) -> color_eyre::Result<()> {
+    ) -> eyre::Result<()> {
         if self.dry_run {
             return Ok(());
         }

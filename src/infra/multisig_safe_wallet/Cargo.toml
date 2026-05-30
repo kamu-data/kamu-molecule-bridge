@@ -29,12 +29,11 @@ multisig = { workspace = true }
 
 alloy = { workspace = true }
 async-trait = { workspace = true }
-color-eyre = { workspace = true }
+eyre = { workspace = true }
 reqwest = { workspace = true }
 reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
 
 

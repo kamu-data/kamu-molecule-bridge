@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use color_eyre::eyre::{self, bail};
+use eyre::bail;
 use molecule_ocl::entities::OclId;
 use serde::{Deserialize, Serialize};
 

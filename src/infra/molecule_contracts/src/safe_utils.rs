@@ -1,5 +1,4 @@
 use alloy::primitives::{Address, Log};
-use color_eyre::eyre;
 
 use crate::{Safe, safe};
 

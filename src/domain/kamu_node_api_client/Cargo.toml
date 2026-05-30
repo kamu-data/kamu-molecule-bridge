@@ -30,8 +30,7 @@ molecule_ocl = { workspace = true }
 
 alloy = { workspace = true }
 async-trait = { workspace = true }
-# TODO: use just eyre and color-eyre only in main.rs
-color-eyre = { workspace = true }
+eyre = { workspace = true }
 indoc = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }
@@ -45,6 +44,7 @@ graphql_client = { version = "0.16.0", default-features = false, features = [
     "graphql_query_derive",
 ] }
 
+# Optional
 mockall = { optional = true, workspace = true }
 
 
