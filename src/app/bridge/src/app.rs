@@ -71,10 +71,8 @@ struct AccessChanges {
 #[async_trait::async_trait]
 impl StateRequester for RwLock<AppState> {
     async fn request_as_json(&self) -> Value {
-        // todo
-        todo!()
-        // let readable_state = self.read().await;
-        // serde_json::to_value(&*readable_state).unwrap()
+        let readable_state = self.read().await;
+        serde_json::to_value(&*readable_state).unwrap()
     }
 }
 
