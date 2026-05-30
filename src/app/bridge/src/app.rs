@@ -892,7 +892,7 @@ impl App {
                 app_state.access_changes.insert(
                     Utc::now(),
                     AccessChanges {
-                        reason: { format!("OCL ({ocl_id}/{symbol}) initial update",) },
+                        reason: format!("OCL ({ocl_id}/{symbol}) initial update"),
                         operations: operations.clone(),
                     },
                 );
