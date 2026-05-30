@@ -49,6 +49,8 @@ allow-org = { github = ["kamu-data"] }
 
 [advisories]
 yanked = "deny"
+unused-ignored-advisory = "deny"
+
 ignore = [
     # dotenv is Unmaintained
     # https://rustsec.org/advisories/RUSTSEC-2021-0141
@@ -56,4 +58,15 @@ ignore = [
     # paste - no longer maintained
     # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
+    # aws-lc-sys
+    # https://rustsec.org/advisories/RUSTSEC-2026-0044
+    # https://rustsec.org/advisories/RUSTSEC-2026-0045
+    # https://rustsec.org/advisories/RUSTSEC-2026-0046
+    # https://rustsec.org/advisories/RUSTSEC-2026-0047
+    # https://rustsec.org/advisories/RUSTSEC-2026-0048
+    "RUSTSEC-2026-0044",
+    "RUSTSEC-2026-0045",
+    "RUSTSEC-2026-0046",
+    "RUSTSEC-2026-0047",
+    "RUSTSEC-2026-0048",
 ]
