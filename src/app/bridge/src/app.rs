@@ -869,10 +869,15 @@ impl App {
 
     #[tracing::instrument(level = "info", skip_all)]
     async fn initial_access_applying(&self, app_state: &mut AppState) -> eyre::Result<()> {
-        for (ocl_id, on_chain_ocl_ownership) in &*app_state.on_chain_ocl_ownership_projection_map {
-            let Some(off_chain_ocl_project) = app_state.off_chain_ocl_project_map.get(ocl_id)
+        for (ocl_id, off_chain_ocl_project) in &app_state.off_chain_ocl_project_map {
+            let symbol = &off_chain_ocl_project.entry.symbol;
+
+            tracing::info!(%ocl_id, symbol, "OCL initial update");
+
+            let Some(on_chain_ocl_ownership) =
+                app_state.on_chain_ocl_ownership_projection_map.get(ocl_id)
             else {
-                tracing::info!("Skip OCL since there is no project created for it");
+                tracing::info!("Skip OCL update: not found on-chain");
                 continue;
             };
 
