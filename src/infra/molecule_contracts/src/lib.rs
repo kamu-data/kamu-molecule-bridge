@@ -1,4 +1,5 @@
 pub mod prelude;
+mod safe_utils;
 
 use alloy::sol;
 
@@ -19,6 +20,8 @@ pub mod safe {
         use super::*;
         sol!(Safe, "abis/Safe_1.5.0.json");
     }
+
+    pub use safe_utils::parse_safe_removed_owner_event;
 }
 
 // Actual version

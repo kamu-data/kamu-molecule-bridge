@@ -2981,6 +2981,7 @@ name = "molecule_contracts"
 version = "0.6.0"
 dependencies = [
  "alloy",
+ "color-eyre",
 ]
 
 [[package]]

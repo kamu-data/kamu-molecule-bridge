@@ -10,6 +10,7 @@ use color_eyre::eyre;
 use color_eyre::eyre::bail;
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
+use molecule_contracts::safe::parse_safe_removed_owner_event;
 use molecule_contracts::{LabNFT, Safe, safe};
 use molecule_ocl::entities::{
     OclId, OclOwnershipChange, OclOwnershipProjection, OclOwnershipProjectionMap, OclTransferEvent,
@@ -735,7 +736,6 @@ impl App {
     }
 
     // TODO: breakdown to smaller peaces
-    // TODO: is symbol needed like before?
     #[tracing::instrument(level = "info", skip_all, fields(ocl_id = %ocl_id))]
     async fn interval_access_applying_for_ocl(
         &self,
@@ -906,7 +906,6 @@ impl App {
         Ok(())
     }
 
-    // TODO: is symbol needed like before?
     #[tracing::instrument(level = "info", skip_all, fields(ocl_id = %ocl_id))]
     async fn initial_access_applying_for_ocl(
         &self,
@@ -1122,7 +1121,6 @@ struct OclChange {
 }
 
 impl OclChange {
-    // todo remove?
     fn new(owner_changes: OclOwnershipChange) -> Self {
         Self {
             owner_changes: Some(owner_changes),
@@ -1436,18 +1434,4 @@ fn parse_safe_added_owner_event(log: &Log) -> eyre::Result<Address> {
     };
 
     Ok(added_owner)
-}
-
-// TODO: move to molecule-contracts crate
-fn parse_safe_removed_owner_event(log: &Log) -> eyre::Result<Address> {
-    // First, try to parse the actual event signature (indexed "owner" field), ...
-    let removed_owner = if let Ok(event) = Safe::RemovedOwner::decode_log(log) {
-        event.owner
-    } else {
-        // Try to parse an old version event (w/o indexed mark) -- may be relevant for older Safe Wallet versions
-        let event = safe::v1_3_0::Safe::RemovedOwner::decode_log(log)?;
-        event.owner
-    };
-
-    Ok(removed_owner)
 }
