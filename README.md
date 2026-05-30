@@ -1,18 +1,13 @@
 # Kamu-Molecule Bridge Component
-Assigns users correct access permissions based on IPT/IPNFT information indexed from blockchain.
+Assigns users correct access permissions based on OCL information indexed from the blockchain.
 
 
 ## High-level Overview
 
 **Inputs**:
-- IPNFT contract events ([ABI](./src/infra/molecule_contracts/abis/IPNFT.json)):
-  - `IPNFTMinted`
-  - `Transfer`
-- Tokenizer contract events ([ABI](./src/infra/molecule_contracts/abis/Tokenizer.json)):
-  - `TokensCreated`
-- IPToken contract events ([ABI](./src/infra/molecule_contracts/abis/IPToken.json)):
-  - `Transfer` (ERC20)
-- Safe multisig wallet contract events ([ABI](./src/infra/molecule_contracts/abis/Safe.json)):
+- LabNFT contract events ([ABI](./src/infra/molecule_contracts/abis/LabNFT.json)):
+  - `OclTransfer`
+- Safe multisig wallet contract events ([ABI](./src/infra/molecule_contracts/abis/Safe_1.5.0.json)):
   - `AddedOwner`
   - `RemovedOwner`
 - Safe multisig wallet API:
@@ -24,23 +19,22 @@ Assigns users correct access permissions based on IPT/IPNFT information indexed 
 
 **Outputs**:
 
-Service uses Kamu Node API to set the access permissions for relevant accounts and token holders.
+Service uses Kamu Node API to set the access permissions for relevant accounts.
 
 **Catch-up phase**:
 
-- Blockchain: Indexing to have complete information about all IPNFTs, IPTokens and their owners/holders
+- Blockchain: Indexing to have complete information about all OCLs and their owners
 - API: Loading allowlisted projects from the `molecule/projects` dataset
 - API: Loading versioned files associated with projects (via data-rooms)
 - API: Loading and tracking `molecule_access_level` for later access permissions assignment
-- Bridge: Complete granting of access permissions for all owners and holders.
+- Bridge: Complete granting of access permissions for all owners.
 
 **Update loop**:
 
 - Blockchain: Periodic (configurable) indexing of new blocks.
 - API: Periodic (configurable) querying of dataset changes associated with projects.
 - Bridge: Granting/revoking access according to blockchain and dataset changes:
-  - Changed IPNFT owners / or changing multisig participants
-  - New holders / Holders without the required balance
+  - Changed OCL owners / or changing multisig participants
   - Added / removed files
 
 ## Developing
@@ -54,7 +48,7 @@ See [Helm chart repo](https://github.com/kamu-data/kamu-molecule-bridge-helm-cha
 
 **Dependencies**:
 * EVM JSONRPC Node URL - used to index the state of the contracts from blockchain
-* Kamu Node URL - used to discover the project data rooms structure and assign necessary access permissions to token holders.
+* Kamu Node URL - used to discover the project data rooms structure and assign necessary access permissions to accounts.
 
 ## Configuring
 The service accepts both environment variables (via `.env`) and a `config.yaml` file (location can be specified via CLI arguments). 
@@ -64,7 +58,7 @@ The service accepts both environment variables (via `.env`) and a `config.yaml` 
 
 See [`.env.example`](./.env.example) and [`config.yaml.example`](./config.yaml.example) for sample configuration.
 
-Currently, `ignore_projects_ipnft_uids` parameter can only be passed through `config.yaml`.
+Currently, `ignore_projects_ocl_ids` parameter can only be passed through `config.yaml`.
 
 To learn all possible parameters, please look at [`Config`](./src/app/bridge/src/config.rs) structure.
 
@@ -81,7 +75,7 @@ The service provides the following monitoring features:
 - The supplied Helm chart exposes them via `/system/health` HTTP endpoint
 
 **Prometheus metrics**:
-- Application reports metrics on the number of RPC requests executed, error encountered etc.
+- Application reports metrics on the number of RPC requests executed, error encountered, etc.
 - Metrics are exposed via `/system/metrics` HTTP endpoint
 - The supplied Helm chart configures supports enabling `ServiceMonitor` CRD to allow Prometheus Operator in the cluster to automatically start scraping the metrics
 
