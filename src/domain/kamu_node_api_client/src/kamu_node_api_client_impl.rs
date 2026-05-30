@@ -394,8 +394,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             return Ok(());
         }
 
-        // TODO: parallel batches
-
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
         })
@@ -412,8 +410,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         if self.dry_run {
             return Ok(());
         }
-
-        // TODO: batches? we have ~1400 operations for some IPNFT
 
         let operations = operations.into_iter().map(Into::into).collect();
 
