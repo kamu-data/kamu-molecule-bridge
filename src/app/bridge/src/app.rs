@@ -752,7 +752,7 @@ impl App {
             let mut current_owners = HashSet::new();
             let mut revoke_access_accounts = HashSet::new();
 
-            // TODO: self.get_owners() in parallel for all possible multisig?
+            // TODO: PERF: self.get_owners() in parallel for all possible multisig?
             if let Some(owner_changes) = ocl_change.owner_changes {
                 let GetOwnersResponse {
                     current_owners: new_owners,
@@ -1082,7 +1082,7 @@ impl App {
         let mut current_owners = HashSet::new();
         let mut revoke_access_accounts = HashSet::new();
 
-        // TODO: self.get_owners() in parallel for all possible multisig?
+        // TODO: PERF: self.get_owners() in parallel for all possible multisig?
         if let Some(current_owner) = &on_chain_ocl_ownership.current {
             let GetOwnersResponse {
                 current_owners: new_owners,
@@ -1092,15 +1092,14 @@ impl App {
             revoke_access_accounts.extend(former_owners);
         }
 
-        // TODO: Where would be the best place for us to do this?
-        // if let Some(former_owner) = &ipnft_state.ipnft.former_owner {
-        //     let GetOwnersResponse {
-        //         current_owners: old_owners,
-        //         former_owners,
-        //     } = self.get_owners(*former_owner, multisig, to_block).await?;
-        //     revoke_access_accounts.extend(old_owners);
-        //     revoke_access_accounts.extend(former_owners);
-        // }
+        for previous in &on_chain_ocl_ownership.previous {
+            let GetOwnersResponse {
+                current_owners: former_owners_1,
+                former_owners: former_owners_2,
+            } = self.get_owners(*previous, multisig, to_block).await?;
+            revoke_access_accounts.extend(former_owners_1);
+            revoke_access_accounts.extend(former_owners_2);
+        }
 
         account_access_sanity_checks(&current_owners, &mut revoke_access_accounts);
 
