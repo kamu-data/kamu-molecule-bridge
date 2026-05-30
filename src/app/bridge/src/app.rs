@@ -225,7 +225,8 @@ impl App {
         }
 
         let IndexingResponse {
-            mut on_chain_ocl_changes_map,
+            // NOTE: emphasize that this includes not just on-chain changes
+            on_chain_ocl_changes_map: mut ocl_changes_map,
         } = self
             .indexing(&mut writable_state, latest_finalized_block_number)
             .await?;
@@ -243,7 +244,7 @@ impl App {
                 self.load_molecule_projects(&mut writable_state).await?;
 
             for (ocl_id, changed_files) in versioned_file_changes_per_projects {
-                let ocl_changes = on_chain_ocl_changes_map.entry(ocl_id).or_default();
+                let ocl_changes = ocl_changes_map.entry(ocl_id).or_default();
                 // TODO: do not reuse changed_files field -- add a new struct
                 ocl_changes.changed_files = changed_files;
             }
@@ -253,7 +254,7 @@ impl App {
 
         self.interval_access_applying(
             &mut writable_state,
-            on_chain_ocl_changes_map,
+            ocl_changes_map,
             next_block_for_indexing,
         )
         .await?;
@@ -684,19 +685,21 @@ impl App {
         to_block: u64,
     ) -> eyre::Result<()> {
         for (ocl_id, ocl_change) in ocl_changes_map {
-            // TODO: is that actual?
-            // NOTE: These are post-indexing updates, so all this data must be present.
+            tracing::info!(%ocl_id, "OCL interval update");
+
             let Some(on_chain_ocl_ownership) =
                 app_state.on_chain_ocl_ownership_projection_map.get(&ocl_id)
             else {
-                bail!("IPNFT state should be present: {ocl_id}")
+                tracing::info!("Skip OCL update: not found on-chain");
+                assert!(ocl_change.owner_changes.is_none());
+                continue;
             };
 
             let Some(off_chain_ocl_project) = app_state.off_chain_ocl_project_map.get(&ocl_id)
             else {
-                tracing::info!("Skip OCL since there is no project created for it");
-                debug_assert!(ocl_change.changed_files.is_empty());
-                return Ok(());
+                tracing::info!("Skip OCL update: no entry in \"projects\" dataset");
+                assert!(ocl_change.changed_files.is_empty());
+                continue;
             };
 
             let operations = self
