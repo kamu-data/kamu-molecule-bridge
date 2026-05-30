@@ -715,16 +715,12 @@ impl App {
 
             // Apply operations
             if !operations.is_empty() {
+                let symbol = &off_chain_ocl_project.entry.symbol;
+
                 app_state.access_changes.insert(
                     Utc::now(),
                     AccessChanges {
-                        reason: {
-                            // TODO add symbol
-                            format!(
-                                "OCL ({:?}/{ocl_id}) interval update",
-                                "??? symbol" // ocl_state.ipnft.symbol
-                            )
-                        },
+                        reason: format!("OCL ({ocl_id}/{symbol}) interval update"),
                         operations: operations.clone(),
                     },
                 );
@@ -896,13 +892,7 @@ impl App {
                 app_state.access_changes.insert(
                     Utc::now(),
                     AccessChanges {
-                        reason: {
-                            // TODO add symbol
-                            format!(
-                                "OCL ({:?}/{ocl_id}) interval update",
-                                "??? symbol" // ocl_state.ipnft.symbol
-                            )
-                        },
+                        reason: { format!("OCL ({ocl_id}/{symbol}) initial update",) },
                         operations: operations.clone(),
                     },
                 );
