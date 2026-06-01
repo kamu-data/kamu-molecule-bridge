@@ -3295,8 +3295,8 @@ dependencies = [
 
 [[package]]
 name = "observability"
-version = "0.263.3"
-source = "git+https://github.com/kamu-data/kamu-cli?tag=v0.263.3#6124c907a169cf0e23affb3c07fce30519063719"
+version = "0.263.4"
+source = "git+https://github.com/kamu-data/kamu-cli?tag=v0.263.4#c0e377ce58e293d1fbe083a503f4bf2b3279d116"
 dependencies = [
  "async-trait",
  "axum",
@@ -5141,6 +5141,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
 ]
 
