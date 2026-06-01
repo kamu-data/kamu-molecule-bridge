@@ -1,13 +1,14 @@
 pub mod prelude;
+mod safe_utils;
 
 use alloy::sol;
 
-sol!(IPNFT, "abis/IPNFT.json");
-sol!(IPToken, "abis/IPToken.json");
-sol!(Tokenizer, "abis/Tokenizer.json");
-// NOTE: Backward compatibility, based on:
-//       https://github.com/moleculeprotocol/IPNFT/blob/main/subgraph/makeAbis.sh
-sol!(Synthesizer, "abis/Synthesizer.json");
+sol!(
+    // Generate Debug impls
+    #[sol(all_derives = true)]
+    LabNFT,
+    "abis/LabNFT.json"
+);
 
 pub mod safe {
     use super::*;
@@ -19,6 +20,8 @@ pub mod safe {
         use super::*;
         sol!(Safe, "abis/Safe_1.5.0.json");
     }
+
+    pub use safe_utils::parse_safe_removed_owner_event;
 }
 
 // Actual version

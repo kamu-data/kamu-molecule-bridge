@@ -2,20 +2,20 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use alloy::primitives::{Address, Log, U256};
+use alloy::primitives::{Address, Log};
 use alloy::providers::DynProvider;
 use alloy_ext::prelude::*;
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use color_eyre::eyre;
-use color_eyre::eyre::{ContextCompat, bail};
+use eyre::bail;
 use kamu_node_api_client::*;
 use molecule_contracts::prelude::*;
-use molecule_contracts::{IPNFT, IPToken, Safe, Synthesizer, Tokenizer, safe};
-use molecule_ipnft::entities::*;
-use molecule_ipnft::strategies::IpnftEventProcessingStrategy;
+use molecule_contracts::safe::parse_safe_removed_owner_event;
+use molecule_contracts::{LabNFT, Safe, safe};
+use molecule_ocl::entities::{
+    OclId, OclOwnershipChange, OclOwnershipProjection, OclOwnershipProjectionMap, OclTransferEvent,
+};
 use multisig::services::MultisigResolver;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tracing::Instrument as _;
@@ -25,12 +25,17 @@ use crate::http_server;
 use crate::http_server::{HttpServeFuture, StateRequester};
 use crate::metrics::BridgeMetrics;
 
-// TODO: Update when it's agreed
-const IPT_ACCESS_THRESHOLD: U256 = U256::ZERO;
+// TODO: Implement event sourcing: maintain single ordered log of events from two sources
+//       and derive state as a projection over that log.
+//
+//       Sources:
+//       - On-chain: LabNFT transfers, multisig changes (source of truth, indexed by block number)
+//       - Off-chain: OCL project changes (polled periodically, indexed by offset)
+//
+//       Each event should carry a timestamp for cross-source ordering.
 
 pub struct App {
     config: Config,
-    ignore_projects_ipnft_uids: HashSet<String>,
 
     rpc_client: DynProvider,
     multisig_resolver: Arc<dyn MultisigResolver>,
@@ -45,16 +50,15 @@ pub struct App {
 
 #[derive(Debug, Default, Serialize)]
 pub struct AppState {
-    projects_dataset_offset: Option<u64>,
+    molecule_projects_dataset_offset: Option<u64>,
+    molecule_projects_last_requested_at: Option<DateTime<Utc>>,
 
-    ipnft_state_map: HashMap<IpnftUid, IpnftState>,
+    on_chain_ocl_ownership_projection_map: OclOwnershipProjectionMap,
+    off_chain_ocl_project_map: HashMap<OclId, OffChainMoleculeProjectProjection>,
     latest_indexed_block_number: u64,
 
-    token_address_ipnft_uid_mapping: HashMap<Address, IpnftUid>,
-    tokens_latest_indexed_block_number: u64,
-
-    molecule_projects_last_requested_at: Option<DateTime<Utc>>,
     multisig: HashMap<Address, Option<MultisigState>>,
+
     access_changes: HashMap<DateTime<Utc>, AccessChanges>,
 }
 
@@ -64,19 +68,12 @@ struct AccessChanges {
     operations: Vec<AccountDatasetRelationOperation>,
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl StateRequester for RwLock<AppState> {
     async fn request_as_json(&self) -> Value {
         let readable_state = self.read().await;
         serde_json::to_value(&*readable_state).unwrap()
     }
-}
-
-#[derive(Debug, Serialize)]
-struct IpnftState {
-    ipnft: IpnftEventProjection,
-    project: Option<ProjectProjection>,
-    token: Option<TokenProjection>,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,7 +83,7 @@ struct MultisigState {
 }
 
 #[derive(Debug, Serialize)]
-struct ProjectProjection {
+struct OffChainMoleculeProjectProjection {
     entry: MoleculeProjectEntry,
     latest_data_room_offset: u64,
     actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
@@ -99,29 +96,6 @@ struct VersionedFileEntryWithMoleculeAccessLevel {
     molecule_access_level: MoleculeAccessLevel,
 }
 
-#[derive(Debug, Serialize)]
-struct TokenProjection {
-    token_address: Address,
-    #[serde(serialize_with = "serialize_hashmap_values_as_string")]
-    holder_balances: HashMap<Address, U256>,
-}
-
-fn serialize_hashmap_values_as_string<S>(
-    hash_map: &HashMap<Address, U256>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    use serde::ser::SerializeMap;
-
-    let mut map = serializer.serialize_map(Some(hash_map.len()))?;
-    for (k, v) in hash_map {
-        map.serialize_entry(k, &v.to_string())?;
-    }
-    map.end()
-}
-
 impl App {
     pub fn new(
         config: Config,
@@ -131,14 +105,8 @@ impl App {
         metrics: BridgeMetrics,
         metrics_registry: prometheus::Registry,
     ) -> Self {
-        let ignore_projects_ipnft_uids = config
-            .ignore_projects_ipnft_uids
-            .clone()
-            .unwrap_or_default();
-
         Self {
             config,
-            ignore_projects_ipnft_uids,
             rpc_client,
             multisig_resolver,
             kamu_node_api_client,
@@ -226,14 +194,10 @@ impl App {
     async fn init_state(&mut self) -> eyre::Result<AppState> {
         let latest_finalized_block_number = self.rpc_client.latest_finalized_block_number().await?;
 
-        let minimal_ipnft_or_tokenizer_birth_block_minus_one = self
-            .config
-            .ipnft_contract_birth_block
-            .min(self.config.tokenizer_contract_birth_block)
-            - 1;
+        let labnft_contract_birth_block_minus_one = self.config.labnft_contract_birth_block - 1;
 
         let mut initial_app_state = AppState {
-            latest_indexed_block_number: minimal_ipnft_or_tokenizer_birth_block_minus_one,
+            latest_indexed_block_number: labnft_contract_birth_block_minus_one,
             ..Default::default()
         };
 
@@ -261,7 +225,8 @@ impl App {
         }
 
         let IndexingResponse {
-            mut ipnft_changes_map,
+            // NOTE: emphasize that this includes not just on-chain changes
+            on_chain_ocl_changes_map: mut ocl_changes_map,
         } = self
             .indexing(&mut writable_state, latest_finalized_block_number)
             .await?;
@@ -278,9 +243,10 @@ impl App {
             let versioned_file_changes_per_projects =
                 self.load_molecule_projects(&mut writable_state).await?;
 
-            for (ipnft_uid, changed_files) in versioned_file_changes_per_projects {
-                let ipnft_changes = ipnft_changes_map.entry(ipnft_uid).or_default();
-                ipnft_changes.changed_files = changed_files;
+            for (ocl_id, changed_files) in versioned_file_changes_per_projects {
+                let ocl_changes = ocl_changes_map.entry(ocl_id).or_default();
+                // TODO: do not reuse changed_files field -- add a new struct
+                ocl_changes.changed_files = changed_files;
             }
 
             writable_state.molecule_projects_last_requested_at = Some(Utc::now());
@@ -288,7 +254,7 @@ impl App {
 
         self.interval_access_applying(
             &mut writable_state,
-            ipnft_changes_map,
+            ocl_changes_map,
             next_block_for_indexing,
         )
         .await?;
@@ -302,41 +268,18 @@ impl App {
         app_state: &mut AppState,
         to_block: u64,
     ) -> eyre::Result<IndexingResponse> {
-        let IndexIpnftAndTokenizerContractsResponse {
-            ipnft_events,
-            tokenizer_events,
-        } = self
-            .index_ipnft_and_tokenizer_contracts(
-                app_state.latest_indexed_block_number + 1,
-                to_block,
-            )
+        // TODO parallel jobs index_labnft_contract && changed_ocl_multisig_owners
+
+        let ocl_transfer_events = self
+            .index_labnft_contract(app_state.latest_indexed_block_number + 1, to_block)
             .await?;
+        let ocl_ownership_diff_map = app_state
+            .on_chain_ocl_ownership_projection_map
+            .apply_events(ocl_transfer_events);
 
-        let initial_ipnft_event_projection_map = IpnftEventProcessingStrategy.process(ipnft_events);
-        for (ipnft_uid, event_projection) in &initial_ipnft_event_projection_map {
-            let mut just_created = false;
-            let ipnft_state = app_state
-                .ipnft_state_map
-                .entry(*ipnft_uid)
-                .or_insert_with(|| {
-                    just_created = true;
-                    IpnftState {
-                        ipnft: event_projection.clone(),
-                        project: None,
-                        token: None,
-                    }
-                });
-            // NOTE: No need to sync events the first time.
-            if !just_created {
-                IpnftEventProcessingStrategy.synchronize_ipnft_event_projections(
-                    &mut ipnft_state.ipnft,
-                    event_projection.clone(),
-                );
-            }
-        }
-
+        // TODO breakdown to unblock parallel calls
         let IndexMultisigSafesResponse {
-            changed_ipnft_multisig_owners,
+            changed_ocl_multisig_owners,
         } = self
             .index_multisig_safes(
                 app_state,
@@ -347,61 +290,31 @@ impl App {
 
         app_state.latest_indexed_block_number = to_block;
 
-        let ProcessTokenizerEventsResponse {
-            minimal_ipt_birth_block,
-        } = self.process_tokenizer_events(app_state, tokenizer_events);
+        // Populate blockchain changes:
 
-        let from_block = if app_state.tokens_latest_indexed_block_number == 0 {
-            minimal_ipt_birth_block
-        } else {
-            app_state.tokens_latest_indexed_block_number + 1
-        };
-        let token_transfer_events = self.index_tokens(app_state, from_block, to_block).await?;
-        let ProcessTokenTransferEventsResponse {
-            participating_holders_balances,
-        } = self.process_token_transfer_events(app_state, token_transfer_events)?;
+        // 1. From LabNFT contract
+        let mut ocl_changes_map: HashMap<_, _> = ocl_ownership_diff_map
+            .into_iter()
+            .map(|(ocl_id, ownership_change)| (ocl_id, OclChange::new(ownership_change)))
+            .collect();
 
-        app_state.tokens_latest_indexed_block_number = to_block;
-
-        // Populate IPNFT blockchain changes:
-        let mut ipnft_changes_map: HashMap<IpnftUid, IpnftChanges> = HashMap::new();
-        // 1. From IPNFT contract
-        for (ipnft_uid, ipnft_event_projection) in initial_ipnft_event_projection_map {
-            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
-
-            if ipnft_event_projection.minted && ipnft_event_projection.burnt {
-                // NOTE: IPNFT was burned before we could give access to anyone.
-                //       So there's no need to revoke access from anyone as well.
-                tracing::info!("Skip burnt IPNFT: '{ipnft_uid}'");
-                ipnft_change.minted_and_burnt = true;
-                continue;
-            }
-
-            ipnft_change.owner_changes.current_owner = ipnft_event_projection.current_owner;
-            ipnft_change.owner_changes.former_owner = ipnft_event_projection.former_owner;
-        }
-        // 2. From IPToken contracts
-        for (ipnft_uid, holders_balances_changes) in participating_holders_balances {
-            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
-
-            if ipnft_change.minted_and_burnt {
-                continue;
-            }
-
-            ipnft_change.holder_balances_changes = holders_balances_changes;
-        }
-        // 3. From multisig changes
-        for (ipnft_uid, owner) in changed_ipnft_multisig_owners {
-            let ipnft_change = ipnft_changes_map.entry(ipnft_uid).or_default();
+        // 2. From multisig changes
+        for (ocl_id, owner) in changed_ocl_multisig_owners {
+            let ocl_change = ocl_changes_map.entry(ocl_id).or_default();
 
             // If the current owner changes, we will request new data from the multisig state if needed.
-            if ipnft_change.owner_changes.current_owner.is_none() {
-                // If there is no owner change, we need to trigger new permissions [re]grant in IPNFT.
-                ipnft_change.owner_changes.current_owner = Some(owner);
+            if ocl_change.owner_changes.is_none() {
+                // If there is no owner change, we need to trigger new permissions [re]grant in an OCL.
+                ocl_change.owner_changes = Some(OclOwnershipChange {
+                    former_owner: None,
+                    current_owner: owner,
+                });
             }
         }
 
-        Ok(IndexingResponse { ipnft_changes_map })
+        Ok(IndexingResponse {
+            on_chain_ocl_changes_map: ocl_changes_map,
+        })
     }
 
     #[tracing::instrument(
@@ -413,103 +326,33 @@ impl App {
             diff = to_block.checked_sub(from_block),
         )
     )]
-    async fn index_ipnft_and_tokenizer_contracts(
+    async fn index_labnft_contract(
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> eyre::Result<IndexIpnftAndTokenizerContractsResponse> {
-        let event_signatures = HashSet::from_iter([
-            IPNFT::IPNFTMinted::SIGNATURE_HASH,
-            IPNFT::Transfer::SIGNATURE_HASH,
-            Tokenizer::TokensCreated::SIGNATURE_HASH,
-            // NOTE: Backward compatibility, based on:
-            //       https://github.com/moleculeprotocol/IPNFT/blob/main/subgraph/makeAbis.sh
-            Synthesizer::MoleculesCreated::SIGNATURE_HASH,
-        ]);
+    ) -> eyre::Result<Vec<OclTransferEvent>> {
+        // TODO: static/const
+        let event_signatures = HashSet::from_iter([LabNFT::OclTransfer::SIGNATURE_HASH]);
 
-        let mut ipnft_events = Vec::new();
-        let mut tokenizer_events = Vec::new();
+        let mut events = Vec::new();
 
         self.rpc_client
             .get_logs_ext(
-                vec![
-                    self.config.ipnft_contract_address,
-                    self.config.tokenizer_contract_address,
-                ],
+                // TODO: add method for only one address?
+                vec![self.config.labnft_contract_address],
                 event_signatures,
                 from_block,
                 to_block,
                 &mut |logs_chunk| {
                     for log in logs_chunk.logs {
                         match log.event_signature_hash() {
-                            IPNFT::IPNFTMinted::SIGNATURE_HASH => {
-                                let event = IPNFT::IPNFTMinted::decode_log(&log.inner)?;
-                                let ipnft_uid = IpnftUid {
-                                    ipnft_address: event.address,
-                                    token_id: event.tokenId,
-                                };
+                            LabNFT::OclTransfer::SIGNATURE_HASH => {
+                                let log_event = LabNFT::OclTransfer::decode_log(&log.inner)?;
+                                let event = log_event.data;
 
-                                ipnft_events.push(IpnftEvent::Minted(IpnftEventMinted {
-                                    ipnft_uid,
-                                    initial_owner: event.owner,
-                                    symbol: event.symbol.clone(),
-                                }));
-                            }
-                            IPNFT::Transfer::SIGNATURE_HASH => {
-                                let event = IPNFT::Transfer::decode_log(&log.inner)?;
-                                let ipnft_uid = IpnftUid {
-                                    ipnft_address: event.address,
-                                    token_id: event.tokenId,
-                                };
-
-                                match (event.from, event.to) {
-                                    (Address::ZERO, _) => {
-                                        // NOTE: Skip as we use higher-level
-                                        //       IPNFTMinted event for that
-                                    }
-                                    (from, Address::ZERO) => {
-                                        ipnft_events.push(IpnftEvent::Burnt(IpnftEventBurnt {
-                                            ipnft_uid,
-                                            former_owner: from,
-                                        }));
-                                    }
-                                    (from, to) => {
-                                        ipnft_events.push(IpnftEvent::Transfer(
-                                            IpnftEventTransfer {
-                                                ipnft_uid,
-                                                from,
-                                                to,
-                                            },
-                                        ));
-                                    }
-                                }
-                            }
-                            Tokenizer::TokensCreated::SIGNATURE_HASH => {
-                                let event = Tokenizer::TokensCreated::decode_log(&log.inner)?;
-
-                                tokenizer_events.push(TokenizerEvent::TokenCreated(
-                                    TokenizerEventTokenCreated {
-                                        symbol: event.symbol.clone(),
-                                        token_id: event.ipnftId,
-                                        token_address: event.tokenContract,
-                                        birth_block: log.block_number.unwrap_or_default(),
-                                    },
-                                ));
-                            }
-                            Synthesizer::MoleculesCreated::SIGNATURE_HASH => {
-                                let event = Synthesizer::MoleculesCreated::decode_log(&log.inner)?;
-
-                                tokenizer_events.push(TokenizerEvent::TokenCreated(
-                                    TokenizerEventTokenCreated {
-                                        symbol: event.symbol.clone(),
-                                        token_id: event.ipnftId,
-                                        token_address: event.tokenContract,
-                                        birth_block: log.block_number.unwrap_or_default(),
-                                    },
-                                ));
+                                events.push(event.into());
                             }
                             unknown_event_signature_hash => {
-                                // TODO: extract error
                                 bail!(
                                     "Unknown event signature hash: {unknown_event_signature_hash}"
                                 )
@@ -522,10 +365,7 @@ impl App {
             )
             .await?;
 
-        Ok(IndexIpnftAndTokenizerContractsResponse {
-            ipnft_events,
-            tokenizer_events,
-        })
+        Ok(events)
     }
 
     #[tracing::instrument(
@@ -554,6 +394,7 @@ impl App {
         self.rpc_client
             .get_logs_ext(
                 multisigs,
+                // TODO: static/const
                 HashSet::from_iter([
                     Safe::AddedOwner::SIGNATURE_HASH,
                     Safe::RemovedOwner::SIGNATURE_HASH,
@@ -564,6 +405,7 @@ impl App {
                     for log in logs_chunk.logs {
                         let safe_address = log.address();
 
+                        // TODO: move state from here
                         let Some(maybe_multisig_state) = app_state.multisig.get_mut(&safe_address) else {
                             unreachable!();
                         };
@@ -594,206 +436,25 @@ impl App {
             )
             .await?;
 
-        let changed_ipnft_multisig_owners = app_state.ipnft_state_map.iter().fold(
-            HashMap::new(),
-            |mut acc, (ipnft_uid, ipnft_state)| {
-                if let Some(owner) = ipnft_state.ipnft.current_owner
+        // TODO breakdown to unblock parallel calls
+        let changed_ocl_multisig_owners = app_state
+            .on_chain_ocl_ownership_projection_map
+            .iter()
+            .fold(HashMap::new(), |mut acc, (ocl_id, ownership_projection)| {
+                if let Some(owner) = ownership_projection.current
                     && changed_multisigs.contains(&owner)
                 {
-                    acc.insert(*ipnft_uid, owner);
+                    acc.insert(*ocl_id, owner);
                 }
                 acc
-            },
-        );
+            });
 
         Ok(IndexMultisigSafesResponse {
-            changed_ipnft_multisig_owners,
+            changed_ocl_multisig_owners,
         })
     }
 
-    #[tracing::instrument(
-        level = "info",
-        skip_all,
-        fields(
-            from_block = from_block,
-            to_block = to_block,
-            diff = to_block.checked_sub(from_block),
-        )
-    )]
-    async fn index_tokens(
-        &mut self,
-        app_state: &AppState,
-        from_block: u64,
-        to_block: u64,
-    ) -> eyre::Result<Vec<IptEventTransfer>> {
-        let token_addresses = app_state
-            .token_address_ipnft_uid_mapping
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        if token_addresses.is_empty() {
-            tracing::warn!("No tokens to index");
-            return Ok(Vec::new());
-        }
-
-        let event_signatures = HashSet::from_iter([IPToken::Transfer::SIGNATURE_HASH]);
-
-        let mut events = Vec::new();
-
-        self.rpc_client
-            .get_logs_ext(
-                token_addresses,
-                event_signatures,
-                from_block,
-                to_block,
-                &mut |logs_chunk| {
-                    for log in logs_chunk.logs {
-                        match log.event_signature_hash() {
-                            IPToken::Transfer::SIGNATURE_HASH => {
-                                let event = IPToken::Transfer::decode_log(&log.inner)?;
-
-                                events.push(IptEventTransfer {
-                                    token_address: event.address,
-                                    from: event.from,
-                                    to: event.to,
-                                    value: event.value,
-                                });
-                            }
-                            unknown_event_signature_hash => {
-                                bail!(
-                                    "Unknown event signature hash: {unknown_event_signature_hash}"
-                                )
-                            }
-                        }
-                    }
-
-                    Ok(())
-                },
-            )
-            .await?;
-
-        Ok(events)
-    }
-
-    fn process_tokenizer_events(
-        &mut self,
-        app_state: &mut AppState,
-        tokenizer_events: Vec<TokenizerEvent>,
-    ) -> ProcessTokenizerEventsResponse {
-        let mut minimal_birth_block = 0;
-
-        for event in tokenizer_events {
-            match event {
-                TokenizerEvent::TokenCreated(TokenizerEventTokenCreated {
-                    token_id,
-                    token_address,
-                    symbol,
-                    birth_block,
-                }) => {
-                    let maybe_ipnft_state_pair =
-                        app_state
-                            .ipnft_state_map
-                            .iter_mut()
-                            .find(|(ipnft_uid, ipnft_state)| {
-                                ipnft_uid.token_id == token_id
-                                    && ipnft_state.ipnft.symbol.as_ref() == Some(&symbol)
-                            });
-
-                    let Some((ipnft_uid, ipnft_state)) = maybe_ipnft_state_pair else {
-                        tracing::warn!(
-                            "Skip '{symbol}' ({token_id}/{token_address}) token as there is no corresponding IPNFT"
-                        );
-                        continue;
-                    };
-
-                    debug_assert!(ipnft_state.token.is_none());
-
-                    ipnft_state.token = Some(TokenProjection {
-                        token_address,
-                        // NOTE: Will be populated later
-                        holder_balances: HashMap::new(),
-                    });
-
-                    app_state
-                        .token_address_ipnft_uid_mapping
-                        .insert(token_address, *ipnft_uid);
-
-                    if minimal_birth_block == 0 {
-                        minimal_birth_block = birth_block;
-                    } else {
-                        minimal_birth_block = minimal_birth_block.min(birth_block);
-                    }
-                }
-            }
-        }
-
-        ProcessTokenizerEventsResponse {
-            minimal_ipt_birth_block: minimal_birth_block,
-        }
-    }
-
-    fn process_token_transfer_events(
-        &mut self,
-        app_state: &mut AppState,
-        events: Vec<IptEventTransfer>,
-    ) -> eyre::Result<ProcessTokenTransferEventsResponse> {
-        let mut participating_holders_balances = HashMap::<IpnftUid, HashMap<Address, U256>>::new();
-
-        for event in events {
-            let Some(ipnft_uid) = app_state
-                .token_address_ipnft_uid_mapping
-                .get(&event.token_address)
-            else {
-                tracing::warn!(
-                    "Skip event processing as token ({}) has no IPNFT",
-                    event.token_address
-                );
-                continue;
-            };
-
-            let ipnft_state = app_state
-                .ipnft_state_map
-                .get_mut(ipnft_uid)
-                .wrap_err_with(|| format!("IPNFT should be present: '{ipnft_uid}'"))?;
-            let token_projection = ipnft_state
-                .token
-                .as_mut()
-                .wrap_err_with(|| format!("Token should be present: '{ipnft_uid}'"))?;
-
-            debug_assert_eq!(token_projection.token_address, event.token_address);
-
-            if event.from != Address::ZERO {
-                let balance = token_projection
-                    .holder_balances
-                    .entry(event.from)
-                    .or_default();
-                *balance -= event.value;
-
-                let changed_balances = participating_holders_balances
-                    .entry(*ipnft_uid)
-                    .or_default();
-                changed_balances.insert(event.from, *balance);
-            }
-
-            if event.to != Address::ZERO {
-                let balance = token_projection
-                    .holder_balances
-                    .entry(event.to)
-                    .or_default();
-                *balance += event.value;
-
-                let changed_balances = participating_holders_balances
-                    .entry(*ipnft_uid)
-                    .or_default();
-                changed_balances.insert(event.from, *balance);
-            }
-        }
-
-        Ok(ProcessTokenTransferEventsResponse {
-            participating_holders_balances,
-        })
-    }
-
+    // TODO: breakdown to smaller peaces
     #[tracing::instrument(level = "info", skip_all)]
     async fn load_molecule_projects(
         &mut self,
@@ -809,9 +470,8 @@ impl App {
 
         // First, check for new files in known projects (if any).
         let existing_projects = app_state
-            .ipnft_state_map
+            .off_chain_ocl_project_map
             .values_mut()
-            .filter_map(|ipnft_state| ipnft_state.project.as_mut())
             .collect::<Vec<_>>();
         let existing_data_room_dataset_ids_with_offsets = existing_projects
             .iter()
@@ -826,10 +486,10 @@ impl App {
             .kamu_node_api_client
             .get_molecule_project_entries(
                 app_state
-                    .projects_dataset_offset
-                    .map(|off| off + 1)
+                    .molecule_projects_dataset_offset
+                    .map(|offset| offset + 1)
                     .unwrap_or(0),
-                &self.ignore_projects_ipnft_uids,
+                self.config.ignore_ocl_ids.as_ref(),
             )
             .await?;
         let new_data_room_dataset_ids_with_offsets = new_projects_entries
@@ -889,7 +549,7 @@ impl App {
             let _span = tracing::debug_span!(
                 "Process existing project",
                 symbol = project_entry.symbol,
-                ipnft_uid = %project_entry.ipnft_uid
+                ocl_id = %project_entry.ocl_id
             )
             .entered();
 
@@ -938,13 +598,13 @@ impl App {
                 versioned_files_entries.latest_data_room_offset;
 
             if !detected_changes.is_empty() {
-                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+                detected_changes_map.insert(project_entry.ocl_id, detected_changes);
             }
         }
 
         // III. Process new project entries.
         // NOTE: Projects are sorted, so we can simply assign each new value.
-        let mut new_projects_dataset_offset = app_state.projects_dataset_offset;
+        let mut new_molecule_projects_dataset_offset = app_state.molecule_projects_dataset_offset;
 
         for project_entry in new_projects_entries {
             let mut detected_changes = Vec::new();
@@ -952,24 +612,32 @@ impl App {
             let _span = tracing::debug_span!(
                 "Process new project entry",
                 symbol = project_entry.symbol,
-                ipnft_uid = %project_entry.ipnft_uid
+                ocl_id = %project_entry.ocl_id
             )
             .entered();
 
-            new_projects_dataset_offset = Some(project_entry.offset);
+            new_molecule_projects_dataset_offset = Some(project_entry.offset);
 
-            let Some(ipnft_state) = app_state.ipnft_state_map.get_mut(&project_entry.ipnft_uid)
-            else {
-                tracing::info!("Skip project because it's not present in blockchain");
+            if app_state
+                .on_chain_ocl_ownership_projection_map
+                .get(&project_entry.ocl_id)
+                .is_none()
+            {
+                tracing::info!("Skip project: not present in blockchain");
                 continue;
-            };
+            }
 
             let Some(versioned_files_entries) = versioned_files_entries_map
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
             else {
+                tracing::info!("Skip project: data-room is empty");
                 continue;
             };
+
+            tracing::debug!(
+                "Continue: project is present in blockchain and has files in data-room"
+            );
 
             let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
                 &project_entry,
@@ -984,18 +652,21 @@ impl App {
             );
 
             if !detected_changes.is_empty() {
-                detected_changes_map.insert(project_entry.ipnft_uid, detected_changes);
+                detected_changes_map.insert(project_entry.ocl_id, detected_changes);
             }
 
-            ipnft_state.project = Some(ProjectProjection {
-                entry: project_entry,
-                latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
-                actual_files_map,
-                removed_files_map: versioned_files_entries.removed_entities,
-            });
+            app_state.off_chain_ocl_project_map.insert(
+                project_entry.ocl_id,
+                OffChainMoleculeProjectProjection {
+                    entry: project_entry,
+                    latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
+                    actual_files_map,
+                    removed_files_map: versioned_files_entries.removed_entities,
+                },
+            );
         }
 
-        app_state.projects_dataset_offset = new_projects_dataset_offset;
+        app_state.molecule_projects_dataset_offset = new_molecule_projects_dataset_offset;
 
         Ok(detected_changes_map)
     }
@@ -1004,26 +675,39 @@ impl App {
         level = "info",
         skip_all,
         fields(
-            changed_ipnfts_count = ipnft_changes_map.len(),
+            changed_ocls_count = ocl_changes_map.len(),
         )
     )]
     async fn interval_access_applying(
         &self,
         app_state: &mut AppState,
-        ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+        ocl_changes_map: HashMap<OclId, OclChange>,
         to_block: u64,
     ) -> eyre::Result<()> {
-        for (ipnft_uid, ipnft_change) in ipnft_changes_map {
-            // NOTE: These are post-indexing updates, so all this data must be present.
-            let Some(ipnft_state) = app_state.ipnft_state_map.get(&ipnft_uid) else {
-                bail!("IPNFT state should be present: {ipnft_uid}")
+        for (ocl_id, ocl_change) in ocl_changes_map {
+            tracing::info!(%ocl_id, "OCL interval update");
+
+            let Some(on_chain_ocl_ownership) =
+                app_state.on_chain_ocl_ownership_projection_map.get(&ocl_id)
+            else {
+                tracing::info!("Skip OCL update: not found on-chain");
+                assert!(ocl_change.owner_changes.is_none());
+                continue;
+            };
+
+            let Some(off_chain_ocl_project) = app_state.off_chain_ocl_project_map.get(&ocl_id)
+            else {
+                tracing::info!("Skip OCL update: no entry in \"projects\" dataset");
+                assert!(ocl_change.changed_files.is_empty());
+                continue;
             };
 
             let operations = self
-                .interval_access_applying_for_ipnft(
-                    ipnft_uid,
-                    ipnft_state,
-                    ipnft_change,
+                .interval_access_applying_for_ocl(
+                    ocl_id,
+                    on_chain_ocl_ownership,
+                    off_chain_ocl_project,
+                    ocl_change,
                     &mut app_state.multisig,
                     to_block,
                 )
@@ -1031,13 +715,12 @@ impl App {
 
             // Apply operations
             if !operations.is_empty() {
+                let symbol = &off_chain_ocl_project.entry.symbol;
+
                 app_state.access_changes.insert(
                     Utc::now(),
                     AccessChanges {
-                        reason: format!(
-                            "IPNFT ({:?}/{ipnft_uid}) interval update",
-                            ipnft_state.ipnft.symbol
-                        ),
+                        reason: format!("OCL ({ocl_id}/{symbol}) interval update"),
                         operations: operations.clone(),
                     },
                 );
@@ -1051,79 +734,57 @@ impl App {
         Ok(())
     }
 
-    #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
-    async fn interval_access_applying_for_ipnft(
+    // TODO: breakdown to smaller peaces
+    #[tracing::instrument(level = "info", skip_all, fields(ocl_id = %ocl_id))]
+    async fn interval_access_applying_for_ocl(
         &self,
-        ipnft_uid: IpnftUid,
-        ipnft_state: &IpnftState,
-        ipnft_change: IpnftChanges,
+        ocl_id: OclId,
+        on_chain_ocl_ownership: &OclOwnershipProjection,
+        off_chain_ocl_project: &OffChainMoleculeProjectProjection,
+        ocl_change: OclChange,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
-        if ipnft_change.minted_and_burnt {
-            // Nothing to do
-            return Ok(Vec::new());
-        }
-
-        let Some(project) = &ipnft_state.project else {
-            tracing::info!("Skip IPNFT since there is no project created for it");
-            debug_assert!(ipnft_change.changed_files.is_empty());
-            return Ok(Vec::new());
-        };
-
         // 1. Process new blockchain data.
         let blockchain_based_operations = {
             // Prepare account information
             let mut current_owners = HashSet::new();
-            let mut holders = HashSet::new();
             let mut revoke_access_accounts = HashSet::new();
 
-            // TODO: self.get_owners() in parallel for all possible multisig?
-            if let Some(current_owner) = ipnft_change.owner_changes.current_owner {
+            // TODO: PERF: self.get_owners() in parallel for all possible multisig?
+            if let Some(owner_changes) = ocl_change.owner_changes {
                 let GetOwnersResponse {
                     current_owners: new_owners,
                     former_owners,
-                } = self.get_owners(current_owner, multisig, to_block).await?;
+                } = self
+                    .get_owners(owner_changes.current_owner, multisig, to_block)
+                    .await?;
                 current_owners.extend(new_owners);
                 revoke_access_accounts.extend(former_owners);
-            }
-            if let Some(former_owner) = ipnft_change.owner_changes.former_owner {
-                let GetOwnersResponse {
-                    current_owners: old_owners,
-                    former_owners,
-                } = self.get_owners(former_owner, multisig, to_block).await?;
-                revoke_access_accounts.extend(old_owners);
-                revoke_access_accounts.extend(former_owners);
-            }
 
-            for (holder, balance) in ipnft_change.holder_balances_changes {
-                if balance > IPT_ACCESS_THRESHOLD {
-                    holders.insert(holder);
-                } else {
-                    revoke_access_accounts.insert(holder);
+                if let Some(former_owner) = owner_changes.former_owner {
+                    let GetOwnersResponse {
+                        current_owners: old_owners,
+                        former_owners,
+                    } = self.get_owners(former_owner, multisig, to_block).await?;
+                    revoke_access_accounts.extend(old_owners);
+                    revoke_access_accounts.extend(former_owners);
                 }
             }
 
-            account_access_sanity_checks(
-                &current_owners,
-                &mut holders,
-                &mut revoke_access_accounts,
-            );
+            account_access_sanity_checks(&current_owners, &mut revoke_access_accounts);
 
             // Create accounts
             let CreateAccountsResponse {
                 current_owners_did_pkhs,
-                holders_did_pkhs,
                 revoke_access_accounts_did_pkh,
-            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+            } = self.create_did_pkh_accounts(current_owners, revoke_access_accounts)?;
 
-            let all_accounts_count = current_owners_did_pkhs.len()
-                + holders_did_pkhs.len()
-                + revoke_access_accounts_did_pkh.len();
+            let all_accounts_count =
+                current_owners_did_pkhs.len() + revoke_access_accounts_did_pkh.len();
             let accounts = {
                 let mut v = Vec::with_capacity(all_accounts_count);
                 v.extend(current_owners_did_pkhs.clone());
-                v.extend(holders_did_pkhs.clone());
                 v.extend(revoke_access_accounts_did_pkh.clone());
                 v
             };
@@ -1132,36 +793,33 @@ impl App {
                 .create_wallet_accounts(accounts)
                 .await?;
 
-            let project_dataset_ids = get_project_dataset_ids(project);
+            let project_dataset_ids = get_project_dataset_ids(off_chain_ocl_project);
 
             build_operations(
                 project_dataset_ids,
                 &current_owners_did_pkhs,
-                &holders_did_pkhs,
                 &revoke_access_accounts_did_pkh,
             )
         };
 
         // 2. Process the project's changes.
-        let operations = if !ipnft_change.changed_files.is_empty() {
-            let GetAccountsByIpnftStateResponse {
+        let operations = if !ocl_change.changed_files.is_empty() {
+            let GetAccountsByOclProjectResponse {
                 current_owners,
-                holders,
                 revoke_access_accounts,
             } = self
-                .get_accounts_by_ipnft_state(ipnft_state, multisig, to_block)
+                .get_accounts_by_ocl_project(on_chain_ocl_ownership, multisig, to_block)
                 .await?;
             let CreateAccountsResponse {
                 current_owners_did_pkhs,
-                holders_did_pkhs,
                 revoke_access_accounts_did_pkh,
-            } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+            } = self.create_did_pkh_accounts(current_owners, revoke_access_accounts)?;
 
             let mut changed_project_dataset_ids = ProjectDatasetIds::default();
 
-            for changed_file in &ipnft_change.changed_files {
+            for changed_file in &ocl_change.changed_files {
                 match changed_file.change {
-                    IpnftDataRoomFileChange::Added(molecule_access_level) => {
+                    DataRoomFileChange::Added(molecule_access_level) => {
                         partition_dataset_id_by_molecule_access_level(
                             &changed_file.dataset_id,
                             molecule_access_level,
@@ -1169,12 +827,12 @@ impl App {
                             &mut changed_project_dataset_ids.holder_file_dataset_ids,
                         );
                     }
-                    IpnftDataRoomFileChange::Removed => {
+                    DataRoomFileChange::Removed => {
                         changed_project_dataset_ids
                             .removed_file_dataset_ids
                             .push(&changed_file.dataset_id);
                     }
-                    IpnftDataRoomFileChange::MoleculeAccessLevelChanged { from: _, to } => {
+                    DataRoomFileChange::MoleculeAccessLevelChanged { from: _, to } => {
                         partition_dataset_id_by_molecule_access_level(
                             &changed_file.dataset_id,
                             to,
@@ -1188,7 +846,6 @@ impl App {
             let project_based_operations = build_operations(
                 changed_project_dataset_ids,
                 &current_owners_did_pkhs,
-                &holders_did_pkhs,
                 &revoke_access_accounts_did_pkh,
             );
 
@@ -1207,11 +864,23 @@ impl App {
 
     #[tracing::instrument(level = "info", skip_all)]
     async fn initial_access_applying(&self, app_state: &mut AppState) -> eyre::Result<()> {
-        for (ipnft_uid, ipnft_state) in &app_state.ipnft_state_map {
+        for (ocl_id, off_chain_ocl_project) in &app_state.off_chain_ocl_project_map {
+            let symbol = &off_chain_ocl_project.entry.symbol;
+
+            tracing::info!(%ocl_id, symbol, "OCL initial update");
+
+            let Some(on_chain_ocl_ownership) =
+                app_state.on_chain_ocl_ownership_projection_map.get(ocl_id)
+            else {
+                tracing::info!("Skip OCL update: not found on-chain");
+                continue;
+            };
+
             let operations = self
-                .initial_access_applying_for_ipnft(
-                    ipnft_uid,
-                    ipnft_state,
+                .initial_access_applying_for_ocl(
+                    *ocl_id,
+                    on_chain_ocl_ownership,
+                    off_chain_ocl_project,
                     &mut app_state.multisig,
                     app_state.latest_indexed_block_number,
                 )
@@ -1222,10 +891,7 @@ impl App {
                 app_state.access_changes.insert(
                     Utc::now(),
                     AccessChanges {
-                        reason: format!(
-                            "IPNFT ({:?}/{ipnft_uid}) initial update",
-                            ipnft_state.ipnft.symbol
-                        ),
+                        reason: format!("OCL ({ocl_id}/{symbol}) initial update"),
                         operations: operations.clone(),
                     },
                 );
@@ -1239,47 +905,34 @@ impl App {
         Ok(())
     }
 
-    #[tracing::instrument(level = "info", skip_all, fields(symbol = ipnft_state.ipnft.symbol, ipnft_uid = %ipnft_uid))]
-    async fn initial_access_applying_for_ipnft(
+    #[tracing::instrument(level = "info", skip_all, fields(ocl_id = %ocl_id))]
+    async fn initial_access_applying_for_ocl(
         &self,
-        ipnft_uid: &IpnftUid,
-        ipnft_state: &IpnftState,
+        ocl_id: OclId,
+        on_chain_ocl_ownership: &OclOwnershipProjection,
+        off_chain_ocl_project: &OffChainMoleculeProjectProjection,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
     ) -> eyre::Result<Vec<AccountDatasetRelationOperation>> {
-        if ipnft_state.ipnft.burnt {
-            tracing::info!("Skip burnt IPNFT");
-            return Ok(Vec::new());
-        }
-
-        let Some(project) = &ipnft_state.project else {
-            tracing::info!("Skip IPNFT since there is no project created for it");
-            return Ok(Vec::new());
-        };
-
         // Prepare account information
-        let GetAccountsByIpnftStateResponse {
+        let GetAccountsByOclProjectResponse {
             current_owners,
-            holders,
             revoke_access_accounts,
         } = self
-            .get_accounts_by_ipnft_state(ipnft_state, multisig, to_block)
+            .get_accounts_by_ocl_project(on_chain_ocl_ownership, multisig, to_block)
             .await?;
 
         // Create accounts
         let CreateAccountsResponse {
             current_owners_did_pkhs,
-            holders_did_pkhs,
             revoke_access_accounts_did_pkh,
-        } = self.create_did_pkh_accounts(current_owners, holders, revoke_access_accounts)?;
+        } = self.create_did_pkh_accounts(current_owners, revoke_access_accounts)?;
 
-        let all_accounts_count = current_owners_did_pkhs.len()
-            + holders_did_pkhs.len()
-            + revoke_access_accounts_did_pkh.len();
+        let all_accounts_count =
+            current_owners_did_pkhs.len() + revoke_access_accounts_did_pkh.len();
         let accounts = {
             let mut v = Vec::with_capacity(all_accounts_count);
             v.extend(current_owners_did_pkhs.clone());
-            v.extend(holders_did_pkhs.clone());
             v.extend(revoke_access_accounts_did_pkh.clone());
             v
         };
@@ -1289,11 +942,10 @@ impl App {
             .await?;
 
         // Apply operations
-        let project_dataset_ids = get_project_dataset_ids(project);
+        let project_dataset_ids = get_project_dataset_ids(off_chain_ocl_project);
         let operations = build_operations(
             project_dataset_ids,
             &current_owners_did_pkhs,
-            &holders_did_pkhs,
             &revoke_access_accounts_did_pkh,
         );
 
@@ -1399,19 +1051,12 @@ impl App {
     fn create_did_pkh_accounts(
         &self,
         current_owners: HashSet<Address>,
-        holders: HashSet<Address>,
         revoke_access_accounts: HashSet<Address>,
     ) -> eyre::Result<CreateAccountsResponse> {
         let mut current_owners_did_pkhs = Vec::with_capacity(current_owners.len());
         for current_owner in current_owners {
             let account = self.create_did_phk(current_owner)?;
             current_owners_did_pkhs.push(account);
-        }
-
-        let mut holders_did_pkhs = Vec::with_capacity(holders.len());
-        for holder in holders {
-            let account = self.create_did_phk(holder)?;
-            holders_did_pkhs.push(account);
         }
 
         let mut revoke_access_accounts_did_pkh = Vec::with_capacity(revoke_access_accounts.len());
@@ -1422,23 +1067,21 @@ impl App {
 
         Ok(CreateAccountsResponse {
             current_owners_did_pkhs,
-            holders_did_pkhs,
             revoke_access_accounts_did_pkh,
         })
     }
 
-    async fn get_accounts_by_ipnft_state(
+    async fn get_accounts_by_ocl_project(
         &self,
-        ipnft_state: &IpnftState,
+        on_chain_ocl_ownership: &OclOwnershipProjection,
         multisig: &mut HashMap<Address, Option<MultisigState>>,
         to_block: u64,
-    ) -> eyre::Result<GetAccountsByIpnftStateResponse> {
+    ) -> eyre::Result<GetAccountsByOclProjectResponse> {
         let mut current_owners = HashSet::new();
-        let mut holders = HashSet::new();
         let mut revoke_access_accounts = HashSet::new();
 
-        // TODO: self.get_owners() in parallel for all possible multisig?
-        if let Some(current_owner) = &ipnft_state.ipnft.current_owner {
+        // TODO: PERF: self.get_owners() in parallel for all possible multisig?
+        if let Some(current_owner) = &on_chain_ocl_ownership.current {
             let GetOwnersResponse {
                 current_owners: new_owners,
                 former_owners,
@@ -1446,30 +1089,20 @@ impl App {
             current_owners.extend(new_owners);
             revoke_access_accounts.extend(former_owners);
         }
-        if let Some(former_owner) = &ipnft_state.ipnft.former_owner {
+
+        for previous in &on_chain_ocl_ownership.previous {
             let GetOwnersResponse {
-                current_owners: old_owners,
-                former_owners,
-            } = self.get_owners(*former_owner, multisig, to_block).await?;
-            revoke_access_accounts.extend(old_owners);
-            revoke_access_accounts.extend(former_owners);
+                current_owners: former_owners_1,
+                former_owners: former_owners_2,
+            } = self.get_owners(*previous, multisig, to_block).await?;
+            revoke_access_accounts.extend(former_owners_1);
+            revoke_access_accounts.extend(former_owners_2);
         }
 
-        if let Some(token) = &ipnft_state.token {
-            for (holder, balance) in &token.holder_balances {
-                if *balance > IPT_ACCESS_THRESHOLD {
-                    holders.insert(*holder);
-                } else {
-                    revoke_access_accounts.insert(*holder);
-                }
-            }
-        }
+        account_access_sanity_checks(&current_owners, &mut revoke_access_accounts);
 
-        account_access_sanity_checks(&current_owners, &mut holders, &mut revoke_access_accounts);
-
-        Ok(GetAccountsByIpnftStateResponse {
+        Ok(GetAccountsByOclProjectResponse {
             current_owners,
-            holders,
             revoke_access_accounts,
         })
     }
@@ -1477,51 +1110,40 @@ impl App {
 
 #[derive(Debug)]
 struct IndexingResponse {
-    ipnft_changes_map: HashMap<IpnftUid, IpnftChanges>,
+    on_chain_ocl_changes_map: HashMap<OclId, OclChange>,
 }
 
 #[derive(Debug, Default)]
-struct IpnftChanges {
-    minted_and_burnt: bool,
-    owner_changes: OwnerChanges,
-    holder_balances_changes: HashMap<Address, U256>,
+struct OclChange {
+    owner_changes: Option<OclOwnershipChange>,
     changed_files: Vec<ChangedVersionedFile>,
 }
 
-#[derive(Debug, Default)]
-struct OwnerChanges {
-    former_owner: Option<Address>,
-    current_owner: Option<Address>,
-}
-
-struct IndexIpnftAndTokenizerContractsResponse {
-    ipnft_events: Vec<IpnftEvent>,
-    tokenizer_events: Vec<TokenizerEvent>,
+impl OclChange {
+    fn new(owner_changes: OclOwnershipChange) -> Self {
+        Self {
+            owner_changes: Some(owner_changes),
+            changed_files: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct IndexMultisigSafesResponse {
-    changed_ipnft_multisig_owners: HashMap<IpnftUid, Address>,
-}
-
-struct ProcessTokenizerEventsResponse {
-    minimal_ipt_birth_block: u64,
-}
-
-struct ProcessTokenTransferEventsResponse {
-    participating_holders_balances: HashMap<IpnftUid, HashMap<Address, U256>>,
+    changed_ocl_multisig_owners:
+        HashMap<OclId, /* updated multisig (changed owners) */ Address>,
 }
 
 #[derive(Debug)]
 struct ChangedVersionedFile {
     dataset_id: DatasetID,
-    change: IpnftDataRoomFileChange,
+    change: DataRoomFileChange,
 }
 
-type ChangedVersionedFilePerProjectMap = HashMap<IpnftUid, Vec<ChangedVersionedFile>>;
+type ChangedVersionedFilePerProjectMap = HashMap<OclId, Vec<ChangedVersionedFile>>;
 
 #[derive(Debug)]
-enum IpnftDataRoomFileChange {
+enum DataRoomFileChange {
     Added(MoleculeAccessLevel),
     Removed,
     MoleculeAccessLevelChanged {
@@ -1539,7 +1161,6 @@ struct GetOwnersResponse {
 
 struct CreateAccountsResponse {
     current_owners_did_pkhs: Vec<DidPhk>,
-    holders_did_pkhs: Vec<DidPhk>,
     revoke_access_accounts_did_pkh: Vec<DidPhk>,
 }
 
@@ -1579,9 +1200,8 @@ fn build_added_file_entries_with_molecule_access_level_map(
         .collect()
 }
 
-struct GetAccountsByIpnftStateResponse {
+struct GetAccountsByOclProjectResponse {
     current_owners: HashSet<Address>,
-    holders: HashSet<Address>,
     revoke_access_accounts: HashSet<Address>,
 }
 
@@ -1608,9 +1228,9 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
 
         // NOTE: If the project is deleted, consider all files deleted as well.
         let change = if project_entry.is_deleted() {
-            IpnftDataRoomFileChange::Removed
+            DataRoomFileChange::Removed
         } else {
-            IpnftDataRoomFileChange::Added(molecule_access_levels)
+            DataRoomFileChange::Added(molecule_access_levels)
         };
 
         changes.push(ChangedVersionedFile {
@@ -1621,7 +1241,7 @@ fn prepare_changes_based_on_changed_versioned_files_entries(
     for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
         changes.push(ChangedVersionedFile {
             dataset_id: removed_dataset_id.clone(),
-            change: IpnftDataRoomFileChange::Removed,
+            change: DataRoomFileChange::Removed,
         });
     }
 
@@ -1649,12 +1269,12 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
         if project_entry.is_deleted() {
             changes.push(ChangedVersionedFile {
                 dataset_id: dataset_id.clone(),
-                change: IpnftDataRoomFileChange::Removed,
+                change: DataRoomFileChange::Removed,
             });
         } else if current_access != new_access {
             changes.push(ChangedVersionedFile {
                 dataset_id: dataset_id.clone(),
-                change: IpnftDataRoomFileChange::MoleculeAccessLevelChanged {
+                change: DataRoomFileChange::MoleculeAccessLevelChanged {
                     from: current_access,
                     to: new_access,
                 },
@@ -1667,15 +1287,10 @@ fn prepare_changes_based_on_changed_molecule_access_levels(
 
 fn account_access_sanity_checks(
     current_owners: &HashSet<Address>,
-    holders: &mut HashSet<Address>,
     revoke_access_accounts: &mut HashSet<Address>,
 ) {
     for owner in current_owners {
-        holders.remove(owner);
         revoke_access_accounts.remove(owner);
-    }
-    for holder in holders.iter() {
-        revoke_access_accounts.remove(holder);
     }
 }
 
@@ -1697,11 +1312,13 @@ fn partition_dataset_id_by_molecule_access_level<'a>(
     }
 }
 
-fn get_project_dataset_ids(project: &ProjectProjection) -> ProjectDatasetIds<'_> {
+fn get_project_dataset_ids(
+    off_chain_project: &OffChainMoleculeProjectProjection,
+) -> ProjectDatasetIds<'_> {
     let mut owner_file_dataset_ids = Vec::new();
     let mut holder_file_dataset_ids = Vec::new();
 
-    for (dataset_id, entry_with_access_level) in &project.actual_files_map {
+    for (dataset_id, entry_with_access_level) in &off_chain_project.actual_files_map {
         partition_dataset_id_by_molecule_access_level(
             dataset_id,
             entry_with_access_level.molecule_access_level,
@@ -1711,12 +1328,12 @@ fn get_project_dataset_ids(project: &ProjectProjection) -> ProjectDatasetIds<'_>
     }
 
     let mut removed_file_dataset_ids = Vec::new();
-    removed_file_dataset_ids.extend(project.removed_files_map.keys());
+    removed_file_dataset_ids.extend(off_chain_project.removed_files_map.keys());
 
     ProjectDatasetIds {
         core_file_dataset_ids: vec![
-            &project.entry.data_room_dataset_id,
-            &project.entry.announcements_dataset_id,
+            &off_chain_project.entry.data_room_dataset_id,
+            &off_chain_project.entry.announcements_dataset_id,
         ],
         owner_file_dataset_ids,
         holder_file_dataset_ids,
@@ -1732,12 +1349,9 @@ fn build_operations(
         removed_file_dataset_ids,
     }: ProjectDatasetIds,
     current_owners_did_pkhs: &[DidPhk],
-    holders_did_pkhs: &[DidPhk],
     revoke_access_accounts_did_pkh: &[DidPhk],
 ) -> Vec<AccountDatasetRelationOperation> {
-    let all_accounts_count = current_owners_did_pkhs.len()
-        + holders_did_pkhs.len()
-        + revoke_access_accounts_did_pkh.len();
+    let all_accounts_count = current_owners_did_pkhs.len() + revoke_access_accounts_did_pkh.len();
     let all_datasets_count = core_file_dataset_ids.len()
         + owner_file_dataset_ids.len()
         + holder_file_dataset_ids.len()
@@ -1749,12 +1363,6 @@ fn build_operations(
         for owner in current_owners_did_pkhs {
             operations.push(AccountDatasetRelationOperation::maintainer_access(
                 owner.to_string(),
-                (*core_file_dataset_id).clone(),
-            ));
-        }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::reader_access(
-                holder.to_string(),
                 (*core_file_dataset_id).clone(),
             ));
         }
@@ -1772,12 +1380,6 @@ fn build_operations(
                 (*owner_file_dataset_id).clone(),
             ));
         }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::revoke_access(
-                holder.to_string(),
-                (*owner_file_dataset_id).clone(),
-            ));
-        }
         for revoke_access_account in revoke_access_accounts_did_pkh {
             operations.push(AccountDatasetRelationOperation::revoke_access(
                 revoke_access_account.to_string(),
@@ -1792,12 +1394,6 @@ fn build_operations(
                 (*holder_file_dataset_id).clone(),
             ));
         }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::reader_access(
-                holder.to_string(),
-                (*holder_file_dataset_id).clone(),
-            ));
-        }
         for revoke_access_account in revoke_access_accounts_did_pkh {
             operations.push(AccountDatasetRelationOperation::revoke_access(
                 revoke_access_account.to_string(),
@@ -1809,12 +1405,6 @@ fn build_operations(
         for owner in current_owners_did_pkhs {
             operations.push(AccountDatasetRelationOperation::revoke_access(
                 owner.to_string(),
-                (*removed_file_dataset_id).clone(),
-            ));
-        }
-        for holder in holders_did_pkhs {
-            operations.push(AccountDatasetRelationOperation::revoke_access(
-                holder.to_string(),
                 (*removed_file_dataset_id).clone(),
             ));
         }
@@ -1843,17 +1433,4 @@ fn parse_safe_added_owner_event(log: &Log) -> eyre::Result<Address> {
     };
 
     Ok(added_owner)
-}
-
-fn parse_safe_removed_owner_event(log: &Log) -> eyre::Result<Address> {
-    // First, try to parse the actual event signature (indexed "owner" field), ...
-    let removed_owner = if let Ok(event) = Safe::RemovedOwner::decode_log(log) {
-        event.owner
-    } else {
-        // Try to parse an old version event (w/o indexed mark) -- may be relevant for older Safe Wallet versions
-        let event = safe::v1_3_0::Safe::RemovedOwner::decode_log(log)?;
-        event.owner
-    };
-
-    Ok(removed_owner)
 }

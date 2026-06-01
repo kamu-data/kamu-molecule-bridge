@@ -1,15 +1,12 @@
 [bans]
 multiple-versions = "deny"
 skip-tree = [
-    { name = "axum" }, # TODO: Need to upgrade to latest tonic
     { name = "hashbrown" },
-    { name = "heck" },
-    { name = "itertools" },
     { name = "rand" }, # Waiting for alloy and other crates to upgrade to 0.9+
-    { name = "regex-automata" }, # Waiting for matchers crate to upgrade
-    { name = "rustix" },
     { name = "thiserror" },
-    { name = "webpki-roots" }, # No actual duplication, as v0 package was made to depend on v1
+    { name = "digest" },
+    { name = "convert_case" },
+    { name = "itertools" },
 ]
 
 # We should always specify version ranges
@@ -20,6 +17,12 @@ deny = [
     { name = "openssl-sys", reason = "We use rustls throughout the project" },
     { name = "native-tls", reason = "We use rustls throughout the project" },
 ]
+
+[bans.workspace-dependencies]
+duplicates = "deny"
+include-path-dependencies = false
+unused = "deny"
+
 
 [licenses]
 allow = [
@@ -49,6 +52,8 @@ allow-org = { github = ["kamu-data"] }
 
 [advisories]
 yanked = "deny"
+unused-ignored-advisory = "deny"
+
 ignore = [
     # dotenv is Unmaintained
     # https://rustsec.org/advisories/RUSTSEC-2021-0141

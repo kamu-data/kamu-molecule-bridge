@@ -4,7 +4,7 @@ members = [
     "./src/app/bridge",
     # Domain
     "./src/domain/kamu_node_api_client",
-    "./src/domain/molecule_ipnft",
+    "./src/domain/molecule_ocl",
     "./src/domain/multisig",
     # Infra
     "./src/infra/molecule_contracts",
@@ -16,7 +16,7 @@ resolver = "3"
 
 
 [workspace.package]
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
 repository = "https://github.com/kamu-data/kamu-molecule-bridge"
@@ -29,11 +29,9 @@ publish = false
 
 
 [workspace.dependencies]
-# App
-bridge = { path = "src/app/bridge", default-features = false }
 # Domain
 kamu_node_api_client = { path = "src/domain/kamu_node_api_client", default-features = false }
-molecule_ipnft = { path = "src/domain/molecule_ipnft", default-features = false }
+molecule_ocl = { path = "src/domain/molecule_ocl", default-features = false }
 multisig = { path = "src/domain/multisig", default-features = false }
 # Infra
 molecule_contracts = { path = "src/infra/molecule_contracts", default-features = false }
@@ -41,7 +39,7 @@ multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-featur
 # Utils
 alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
 
-alloy = { version = "1", default-features = false, features = [
+alloy = { version = "2", default-features = false, features = [
     "std",
     "contract",
     "json-rpc",
@@ -63,34 +61,45 @@ chrono = { version = "0.4", default-features = false, features = [
     "now",
     "serde",
 ] }
-color-eyre = { version = "0.6" }
+eyre = { version = "0.6", default-features = false, features = [
+    "track-caller"
+] }
 indoc = { version = "2", default-features = false }
-mockall = { version = "0.13", default-features = false }
-observability = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.245.2", version = "0.245.2", default-features = false, features = [
+mockall = { version = "0.14", default-features = false }
+observability = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.263.4", version = "0.263.4", default-features = false, features = [
     "opentelemetry",
     "prometheus",
     "tracing-error",
 ] }
-pretty_assertions = { version = "1.0", features = ["std", "unstable"] }
-prometheus = { version = "0.13", default-features = false }
-reqwest = { version = "0.12", default-features = false, features = [
+nutype = { version = "0.7", default-features = false, features = [
+    "serde",
+] }
+pretty_assertions = { version = "1", features = [
+    "std",
+    "unstable",
+] }
+prometheus = { version = "0.14", default-features = false }
+reqwest = { version = "0.13", default-features = false, features = [
     "gzip",
     "json",
-    "rustls-tls-webpki-roots",
 ] }
-reqwest-middleware = { version = "0.4", default-features = false, features = [
+reqwest-middleware = { version = "0.5", default-features = false, features = [
     "json",
-    "rustls-tls",
+    "rustls",
 ] }
-reqwest-retry = { version = "0.8", default-features = false, features = [
+reqwest-retry = { version = "0.9", default-features = false, features = [
     "tracing",
 ] }
-rstest = { version = "0.26" }
+rstest = { version = "0.26", default-features = false }
 rustls = { version = "0.23", default-features = false, features = [
     "aws-lc-rs",
 ] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1", default-features = false, features = ["std"] }
+serde = { version = "1", features = [
+    "derive",
+] }
+serde_json = { version = "1", default-features = false, features = [
+    "std",
+] }
 thiserror = { version = "2", default-features = false }
 tracing = { version = "0.1", default-features = false }
 tokio = { version = "1", default-features = false, features = [

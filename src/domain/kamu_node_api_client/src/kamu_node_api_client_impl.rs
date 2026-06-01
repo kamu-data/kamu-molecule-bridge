@@ -1,11 +1,8 @@
 use std::collections::HashSet;
-use std::str::FromStr;
 
 use async_trait::async_trait;
-use color_eyre::eyre;
-use color_eyre::eyre::bail;
+use eyre::bail;
 use graphql_client::{GraphQLQuery, Response};
-use molecule_ipnft::entities::IpnftUid;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -117,10 +114,10 @@ impl KamuNodeApiClientImpl {
 #[async_trait]
 impl KamuNodeApiClient for KamuNodeApiClientImpl {
     #[tracing::instrument(level = "debug", skip_all, fields(offset = offset))]
-    async fn get_molecule_project_entries(
+    async fn get_molecule_project_entries<'a>(
         &self,
         offset: u64,
-        ignore_ipnft_uids: &HashSet<String>,
+        maybe_ignore_ocl_ids: Option<&'a HashSet<String>>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>> {
         let molecule_projects = &self.molecule_projects_dataset_alias;
 
@@ -129,14 +126,14 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             r#"
             SELECT offset,
                    op,
-                   account_id AS project_account_id,
-                   ipnft_uid,
-                   ipnft_symbol,
-                   data_room_dataset_id,
-                   announcements_dataset_id
+                   ocl_id,
+                   symbol,
+                   odf_account_id AS project_account_id,
+                   odf_data_room_dataset_id AS data_room_dataset_id,
+                   odf_announcements_dataset_id AS announcements_dataset_id
             FROM (SELECT *,
                          row_number() over (
-                                         partition BY ipnft_symbol -- NOTE: account_id can change if the account is deleted
+                                         partition BY ocl_id
                                          ORDER BY `offset` DESC
                                      ) AS __rank
                   FROM '{molecule_projects}')
@@ -148,7 +145,9 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
         let mut dtos = self.sql_query::<Vec<MoleculeProjectEntryDto>>(sql).await?;
 
-        dtos.retain(|p| !ignore_ipnft_uids.contains(&p.ipnft_uid));
+        if let Some(ignore_ocl_ids) = maybe_ignore_ocl_ids {
+            dtos.retain(|p| !ignore_ocl_ids.contains(&p.ocl_id));
+        }
 
         let project_entries = dtos
             .into_iter()
@@ -389,12 +388,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(did_pkhs_count = did_pkhs.len()))]
-    async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> color_eyre::Result<()> {
+    async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> eyre::Result<()> {
         if self.dry_run {
             return Ok(());
         }
-
-        // TODO: batches? we have ~700 holders for some IPNFT
 
         self.gql_api_call::<CreateWalletAccounts>(create_wallet_accounts::Variables {
             new_wallet_accounts: did_pkhs.iter().map(ToString::to_string).collect(),
@@ -408,12 +405,10 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     async fn apply_account_dataset_relations(
         &self,
         operations: Vec<AccountDatasetRelationOperation>,
-    ) -> color_eyre::Result<()> {
+    ) -> eyre::Result<()> {
         if self.dry_run {
             return Ok(());
         }
-
-        // TODO: batches? we have ~1400 operations for some IPNFT
 
         let operations = operations.into_iter().map(Into::into).collect();
 
@@ -468,9 +463,9 @@ struct SqlQuery;
 struct MoleculeProjectEntryDto {
     offset: u64,
     op: u8,
-    ipnft_uid: String,
-    ipnft_symbol: String,
-    project_account_id: crate::AccountID,
+    ocl_id: String,
+    symbol: String,
+    project_account_id: AccountID,
     data_room_dataset_id: DatasetID,
     announcements_dataset_id: DatasetID,
 }
@@ -482,8 +477,8 @@ impl TryInto<MoleculeProjectEntry> for MoleculeProjectEntryDto {
         Ok(MoleculeProjectEntry {
             offset: self.offset,
             op: self.op.try_into()?,
-            ipnft_uid: IpnftUid::from_str(&self.ipnft_uid)?,
-            symbol: self.ipnft_symbol,
+            ocl_id: self.ocl_id.parse()?,
+            symbol: self.symbol,
             project_account_id: self.project_account_id,
             data_room_dataset_id: self.data_room_dataset_id,
             announcements_dataset_id: self.announcements_dataset_id,

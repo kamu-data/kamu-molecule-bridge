@@ -1,19 +1,23 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use color_eyre::eyre::{self, bail};
-use molecule_ipnft::entities::IpnftUid;
+use eyre::bail;
+use molecule_ocl::entities::OclId;
 use serde::{Deserialize, Serialize};
 
 use crate::did_phk::DidPhk;
 
-#[cfg_attr(any(feature = "testing", test), mockall::automock)]
+#[cfg_attr(
+    any(feature = "testing", test),
+    mockall::automock,
+    allow(clippy::ref_option_ref)
+)]
 #[async_trait]
 pub trait KamuNodeApiClient {
-    async fn get_molecule_project_entries(
+    async fn get_molecule_project_entries<'a>(
         &self,
         offset: u64,
-        ignore_ipnft_uids: &std::collections::HashSet<String>,
+        maybe_ignore_ocl_ids: Option<&'a HashSet<String>>,
     ) -> eyre::Result<Vec<MoleculeProjectEntry>>;
 
     async fn get_versioned_files_entries_by_data_rooms(
@@ -70,7 +74,7 @@ impl TryFrom<u8> for OperationType {
 pub struct MoleculeProjectEntry {
     pub offset: u64,
     pub op: OperationType,
-    pub ipnft_uid: IpnftUid,
+    pub ocl_id: OclId,
     pub symbol: String,
     pub project_account_id: AccountID,
     pub data_room_dataset_id: DatasetID,

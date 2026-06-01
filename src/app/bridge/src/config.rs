@@ -30,22 +30,17 @@ pub struct Config {
     #[config(env = "KAMU_MOLECULE_BRIDGE_RPC_URL")]
     pub rpc_url: String,
 
-    #[config(env = "KAMU_MOLECULE_BRIDGE_IPNFT_CONTRACT_ADDRESS")]
-    pub ipnft_contract_address: Address,
-    #[config(env = "KAMU_MOLECULE_BRIDGE_IPNFT_CONTRACT_BIRTH_BLOCK")]
-    pub ipnft_contract_birth_block: u64,
-
-    #[config(env = "KAMU_MOLECULE_BRIDGE_TOKENIZER_CONTRACT_ADDRESS")]
-    pub tokenizer_contract_address: Address,
-    #[config(env = "KAMU_MOLECULE_BRIDGE_TOKENIZER_CONTRACT_BIRTH_BLOCK")]
-    pub tokenizer_contract_birth_block: u64,
+    #[config(env = "KAMU_MOLECULE_BRIDGE_LABNFT_CONTRACT_ADDRESS")]
+    pub labnft_contract_address: Address,
+    #[config(env = "KAMU_MOLECULE_BRIDGE_LABNFT_CONTRACT_BIRTH_BLOCK")]
+    pub labnft_contract_birth_block: u64,
 
     #[config(env = "KAMU_MOLECULE_BRIDGE_INDEXING_DELAY_BETWEEN_ITERATIONS_IN_SECS")]
     pub indexing_delay_between_iterations_in_secs: u64,
 
-    /// List of projects (identified by `ipnft_uid`) that should be ignored
-    #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_PROJECTS_IPNFT_UIDS", parse_env = confique::env::parse::list_by_comma)]
-    pub ignore_projects_ipnft_uids: Option<std::collections::HashSet<String>>,
+    /// List of OCL ids that should be ignored
+    #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_OCL_IDS", parse_env = confique::env::parse::list_by_comma)]
+    pub ignore_ocl_ids: Option<std::collections::HashSet<String>>,
 }
 
 impl Config {

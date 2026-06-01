@@ -30,14 +30,16 @@ alloy_ext = { workspace = true }
 chrono = { workspace = true }
 kamu_node_api_client = { workspace = true }
 molecule_contracts = { workspace = true }
-molecule_ipnft = { workspace = true }
+molecule_ocl = { workspace = true, default-features = false, features = [
+    "serde",
+] }
 multisig = { workspace = true }
 multisig_safe_wallet = { workspace = true }
 
 alloy = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
-color-eyre = { workspace = true }
+eyre = { workspace = true }
 prometheus = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
@@ -46,7 +48,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 observability = { workspace = true }
 
-confique = { version = "0.3", default-features = false, features = ["yaml"] }
+confique = { version = "0.4", default-features = false, features = ["yaml"] }
 clap = { version = "4", default-features = false, features = [
     "cargo",
     "color",
@@ -59,7 +61,10 @@ clap = { version = "4", default-features = false, features = [
     "wrap_help",
 ] }
 dotenv = { version = "0.15", default-features = false, features = [] }
-
+color-eyre = { version = "0.6", default-features = false, features = [
+    "capture-spantrace",
+    "track-caller",
+] }
 
 [dev-dependencies]
 

@@ -6,11 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!--
-Recommendation: for ease of reading, use the following order:
-- Added
-- Changed
-- Fixed
+Recommendation: for ease of reading, use the following format:
+
+## [x.y.z or Unreleased] - <date>
+### Added
+### Changed
+### Fixed
 -->
+
+## [0.6.0] - 2026-05-30
+### Added
+- Molecule v3: Migration from IPNFT to OCL (#47).
 
 ## [0.5.3] - 2026-01-28
 ### Fixed

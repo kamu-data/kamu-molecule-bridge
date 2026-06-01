@@ -1,5 +1,5 @@
 [package]
-name = "molecule_ipnft"
+name = "molecule_ocl"
 version = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
@@ -23,14 +23,21 @@ doctest = false
 [features]
 default = []
 
+serde = [
+    "dep:serde",
+]
+
 
 [dependencies]
+molecule_contracts = { workspace = true }
+
 alloy = { workspace = true }
-color-eyre = { workspace = true }
-serde = { workspace = true }
-tracing = { workspace = true }
+nutype = { workspace = true }
+
+# Optional
+serde = { optional = true, workspace = true }
 
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-tokio = { workspace = true }
+rstest = { workspace = true }

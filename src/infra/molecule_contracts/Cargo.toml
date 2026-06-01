@@ -26,6 +26,7 @@ default = []
 
 [dependencies]
 alloy = { workspace = true }
+eyre = { workspace = true }
 
 
 [dev-dependencies]
