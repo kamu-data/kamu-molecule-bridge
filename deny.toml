@@ -1,12 +1,12 @@
 [bans]
 multiple-versions = "deny"
 skip-tree = [
-    { name = "axum" }, # TODO: Need to upgrade to latest tonic
     { name = "hashbrown" },
     { name = "rand" }, # Waiting for alloy and other crates to upgrade to 0.9+
     { name = "thiserror" },
     { name = "digest" },
     { name = "convert_case" },
+    { name = "itertools" },
 ]
 
 # We should always specify version ranges
