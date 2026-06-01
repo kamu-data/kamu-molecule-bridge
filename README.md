@@ -58,7 +58,7 @@ The service accepts both environment variables (via `.env`) and a `config.yaml` 
 
 See [`.env.example`](./.env.example) and [`config.yaml.example`](./config.yaml.example) for sample configuration.
 
-Currently, `ignore_projects_ocl_ids` parameter can only be passed through `config.yaml`.
+Currently, `ignore_ocl_ids` parameter can only be passed through `config.yaml`.
 
 To learn all possible parameters, please look at [`Config`](./src/app/bridge/src/config.rs) structure.
 
