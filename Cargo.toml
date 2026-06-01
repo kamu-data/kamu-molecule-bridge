@@ -16,7 +16,7 @@ resolver = "3"
 
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
 repository = "https://github.com/kamu-data/kamu-molecule-bridge"
@@ -82,6 +82,7 @@ prometheus = { version = "0.14", default-features = false }
 reqwest = { version = "0.13", default-features = false, features = [
     "gzip",
     "json",
+    "rustls",
 ] }
 reqwest-middleware = { version = "0.5", default-features = false, features = [
     "json",

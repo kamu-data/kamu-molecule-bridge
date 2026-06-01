@@ -1,6 +1,17 @@
 FROM docker.io/library/ubuntu:24.04
 ARG APP_VERSION
 
+# NOTE: Starting with reqwest 0.13.*, we can no longer provide root certificates via features.
+#
+#       Therefore, we need to ensure that CA certificates are available at the image level
+#       so that all reqwest client instances can function w/o requiring any changes
+#       (this is particularly relevant for dependencies that use reqwest).
+#
+#       More details: https://seanmonstar.com/blog/reqwest-v013-rustls-default/
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/kamu
 
 # Tini

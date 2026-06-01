@@ -14,6 +14,10 @@ Recommendation: for ease of reading, use the following format:
 ### Fixed
 -->
 
+## [0.6.1] - 2026-05-30
+### Fixed
+- Image: installed `ca-certificates` to fix `No CA certificates were loaded from the system` (#48).
+
 ## [0.6.0] - 2026-05-30
 ### Added
 - Molecule v3: Migration from IPNFT to OCL (#47).
