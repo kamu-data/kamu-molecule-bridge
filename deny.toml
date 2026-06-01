@@ -10,6 +10,8 @@ skip-tree = [
     { name = "rustix" },
     { name = "thiserror" },
     { name = "webpki-roots" }, # No actual duplication, as v0 package was made to depend on v1
+    { name = "digest" },
+    { name = "convert_case" },
 ]
 
 # We should always specify version ranges
@@ -20,6 +22,12 @@ deny = [
     { name = "openssl-sys", reason = "We use rustls throughout the project" },
     { name = "native-tls", reason = "We use rustls throughout the project" },
 ]
+
+[bans.workspace-dependencies]
+duplicates = "deny"
+include-path-dependencies = false
+unused = "deny"
+
 
 [licenses]
 allow = [
@@ -58,15 +66,4 @@ ignore = [
     # paste - no longer maintained
     # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
-    # aws-lc-sys
-    # https://rustsec.org/advisories/RUSTSEC-2026-0044
-    # https://rustsec.org/advisories/RUSTSEC-2026-0045
-    # https://rustsec.org/advisories/RUSTSEC-2026-0046
-    # https://rustsec.org/advisories/RUSTSEC-2026-0047
-    # https://rustsec.org/advisories/RUSTSEC-2026-0048
-    "RUSTSEC-2026-0044",
-    "RUSTSEC-2026-0045",
-    "RUSTSEC-2026-0046",
-    "RUSTSEC-2026-0047",
-    "RUSTSEC-2026-0048",
 ]
