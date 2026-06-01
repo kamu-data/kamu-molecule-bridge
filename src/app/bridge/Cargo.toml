@@ -48,7 +48,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 observability = { workspace = true }
 
-confique = { version = "0.3", default-features = false, features = ["yaml"] }
+confique = { version = "0.4", default-features = false, features = ["yaml"] }
 clap = { version = "4", default-features = false, features = [
     "cargo",
     "color",
