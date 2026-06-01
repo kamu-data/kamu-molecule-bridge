@@ -41,7 +41,7 @@ multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-featur
 # Utils
 alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
 
-alloy = { version = "1", default-features = false, features = [
+alloy = { version = "2", default-features = false, features = [
     "std",
     "contract",
     "json-rpc",
