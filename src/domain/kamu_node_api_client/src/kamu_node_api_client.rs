@@ -131,9 +131,9 @@ pub struct DataRoomDatasetIdWithOffset {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AccountDatasetRelationOperation {
-    pub account_id: DatasetID,
+    pub account_id: AccountID,
     pub operation: DatasetRoleOperation,
-    pub dataset_id: AccountID,
+    pub dataset_id: DatasetID,
 }
 
 impl AccountDatasetRelationOperation {

@@ -11,12 +11,13 @@ members = [
     "./src/infra/multisig_safe_wallet",
     # Utils
     "./src/utils/alloy_ext",
+    "./src/utils/math",
 ]
 resolver = "3"
 
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 homepage = "https://github.com/kamu-data/kamu-molecule-bridge"
 repository = "https://github.com/kamu-data/kamu-molecule-bridge"
@@ -38,6 +39,7 @@ molecule_contracts = { path = "src/infra/molecule_contracts", default-features =
 multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-features = false }
 # Utils
 alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
+math = { path = "src/utils/math", default-features = false }
 
 alloy = { version = "2", default-features = false, features = [
     "std",
@@ -54,15 +56,15 @@ axum = { version = "0.8", default-features = false, features = [
     "http1",
     "tokio",
 ] }
-# TODO: use eyre and color-eyre only in app crate
-# TODO: remove extra features
-#       https://github.com/eyre-rs/eyre/tree/master/color-eyre
 chrono = { version = "0.4", default-features = false, features = [
     "now",
     "serde",
 ] }
 eyre = { version = "0.6", default-features = false, features = [
     "track-caller"
+] }
+futures = { version = "0.3", default-features = false, features = [
+    "std",
 ] }
 indoc = { version = "2", default-features = false }
 mockall = { version = "0.14", default-features = false }

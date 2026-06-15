@@ -26,11 +26,13 @@ testing = ["dep:mockall"]
 
 
 [dependencies]
-molecule_ocl = { workspace = true }
+math = { workspace = true }
+molecule_ocl = { workspace = true, features = ["serde"] }
 
 alloy = { workspace = true }
 async-trait = { workspace = true }
 eyre = { workspace = true }
+futures = { workspace = true }
 indoc = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }

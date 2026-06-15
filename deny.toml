@@ -36,7 +36,6 @@ allow = [
     "ISC",
     "MIT",
     "MIT-0",
-    "OpenSSL",
     "Unicode-3.0",
     "Unlicense",
     "Zlib",
@@ -55,10 +54,13 @@ yanked = "deny"
 unused-ignored-advisory = "deny"
 
 ignore = [
-    # dotenv is Unmaintained
+    # dotenv (Unmaintained)
     # https://rustsec.org/advisories/RUSTSEC-2021-0141
     "RUSTSEC-2021-0141",
-    # paste - no longer maintained
+    # paste (Unmaintained)
     # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
+    # proc-macro-error2 (Unmaintained)
+    # https://rustsec.org/advisories/RUSTSEC-2026-0173
+    "RUSTSEC-2026-0173",
 ]
