@@ -11,6 +11,7 @@ members = [
     "./src/infra/multisig_safe_wallet",
     # Utils
     "./src/utils/alloy_ext",
+    "./src/utils/math",
 ]
 resolver = "3"
 
@@ -54,9 +55,6 @@ axum = { version = "0.8", default-features = false, features = [
     "http1",
     "tokio",
 ] }
-# TODO: use eyre and color-eyre only in app crate
-# TODO: remove extra features
-#       https://github.com/eyre-rs/eyre/tree/master/color-eyre
 chrono = { version = "0.4", default-features = false, features = [
     "now",
     "serde",
