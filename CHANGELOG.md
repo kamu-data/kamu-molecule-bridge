@@ -14,6 +14,11 @@ Recommendation: for ease of reading, use the following format:
 ### Fixed
 -->
 
+## [0.6.2] - 2026-06-15
+### Changed
+- `KamuNodeApiClient`: batched and concurrently executed SQL queries for data room versioned files 
+   and latest molecule access levels (#49).
+
 ## [0.6.1] - 2026-05-30
 ### Fixed
 - Image: installed `ca-certificates` to fix `No CA certificates were loaded from the system` (#48).
