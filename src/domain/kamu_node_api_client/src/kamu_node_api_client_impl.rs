@@ -61,6 +61,7 @@ impl KamuNodeApiClientImpl {
         let response = self
             .gql_api_call::<SqlQuery>(sql_query::Variables {
                 sql,
+                // TODO: pagination if limit reached
                 limit: i64::try_from(MAX_SQL_QUERY_LIMIT).unwrap(),
             })
             .await?;
@@ -208,7 +209,8 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<VersionedFilesEntriesMap> {
         use futures::stream::{StreamExt, TryStreamExt};
 
-        const DATA_ROOM_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
+        const DATA_ROOM_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
+        const MAX_CONCURRENT_DATA_ROOM_BATCHES: usize = 4;
 
         if data_rooms.is_empty() {
             return Ok(VersionedFilesEntriesMap::new());
@@ -245,7 +247,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         let batch_ranges: Vec<_> = math::ranges::sub_ranges(data_rooms.len(), DATA_ROOM_BATCH_SIZE)
             .into_iter()
             .collect();
-        // NOTE: Arc<_> for concurrent execution
         let data_rooms_arc = Arc::new(data_rooms);
 
         let batch_results: Vec<Vec<VersionedFileEntryDto>> = futures::stream::iter(batch_ranges)
@@ -257,8 +258,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                         .await
                 }
             })
-            // TODO: extract a const
-            .buffer_unordered(4)
+            .buffer_unordered(MAX_CONCURRENT_DATA_ROOM_BATCHES)
             .try_collect()
             .await?;
 
