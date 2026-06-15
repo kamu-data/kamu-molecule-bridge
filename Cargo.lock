@@ -2896,6 +2896,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "eyre",
+ "futures",
  "graphql_client",
  "indoc",
  "mockall",
