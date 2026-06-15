@@ -39,6 +39,7 @@ molecule_contracts = { path = "src/infra/molecule_contracts", default-features =
 multisig_safe_wallet = { path = "src/infra/multisig_safe_wallet", default-features = false }
 # Utils
 alloy_ext = { path = "src/utils/alloy_ext", default-features = false }
+math = { path = "src/utils/math", default-features = false }
 
 alloy = { version = "2", default-features = false, features = [
     "std",

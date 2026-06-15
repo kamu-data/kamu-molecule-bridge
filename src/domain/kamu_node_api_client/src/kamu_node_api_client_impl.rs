@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -207,7 +208,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<VersionedFilesEntriesMap> {
         use futures::stream::{StreamExt, TryStreamExt};
 
-        const DATA_ROOM_BATCH_SIZE: usize = 100;
+        const DATA_ROOM_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
 
         if data_rooms.is_empty() {
             return Ok(VersionedFilesEntriesMap::new());
@@ -241,23 +242,18 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             return Ok(VersionedFilesEntriesMap::new());
         }
 
-        // TODO: TODAY: extract to helper method
-        // TODO: TODAY: cover with tests
-        let len = data_rooms.len();
-        let batch_ranges = (0..len).step_by(DATA_ROOM_BATCH_SIZE).zip(
-            (DATA_ROOM_BATCH_SIZE..len + DATA_ROOM_BATCH_SIZE)
-                .step_by(DATA_ROOM_BATCH_SIZE)
-                .map(|end| end.min(len)),
-        );
+        let batch_ranges: Vec<_> = math::ranges::sub_ranges(data_rooms.len(), DATA_ROOM_BATCH_SIZE)
+            .into_iter()
+            .collect();
         // NOTE: Arc<_> for concurrent execution
         let data_rooms_arc = Arc::new(data_rooms);
 
         let batch_results: Vec<Vec<VersionedFileEntryDto>> = futures::stream::iter(batch_ranges)
-            .map(|(start, end)| {
+            .map(|batch_range| {
                 // NOTE: To make borrow checker happy
                 let data_rooms = Arc::clone(&data_rooms_arc);
                 async move {
-                    self.query_versioned_file_batch(&data_rooms[start..end])
+                    self.query_versioned_file_batch(&data_rooms[batch_range])
                         .await
                 }
             })
