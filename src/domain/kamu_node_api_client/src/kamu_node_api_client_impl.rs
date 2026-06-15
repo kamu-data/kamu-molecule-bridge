@@ -153,6 +153,43 @@ impl KamuNodeApiClientImpl {
 
         self.sql_query::<Vec<VersionedFileEntryDto>>(sql).await
     }
+
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(versioned_file_dataset_ids_batch_size = versioned_file_dataset_ids.len())
+    )]
+    async fn query_molecule_access_level_batch(
+        &self,
+        versioned_file_dataset_ids: &[String],
+    ) -> eyre::Result<Vec<VersionedFileMoleculeAccessLevelDto>> {
+        let molecule_access_level_queries = versioned_file_dataset_ids
+            .iter()
+            .map(|versioned_file_dataset_id| {
+                indoc::formatdoc!(
+                    r#"
+                    (SELECT '{versioned_file_dataset_id}' AS versioned_file_dataset_id,
+                            molecule_access_level
+                     FROM '{versioned_file_dataset_id}'
+                     ORDER BY "offset" DESC
+                     LIMIT 1)
+                    "#
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let sql = indoc::formatdoc!(
+            r#"
+            SELECT versioned_file_dataset_id,
+                   molecule_access_level
+            FROM ({subquery})
+            "#,
+            subquery = molecule_access_level_queries.join("UNION ALL\n")
+        );
+
+        self.sql_query::<Vec<VersionedFileMoleculeAccessLevelDto>>(sql)
+            .await
+    }
 }
 
 #[async_trait]
@@ -308,80 +345,60 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
         &self,
         versioned_file_dataset_ids: Vec<String>,
     ) -> eyre::Result<MoleculeAccessLevelEntryMap> {
+        use futures::stream::{StreamExt, TryStreamExt};
+
+        const VERSIONED_FILE_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
+        const MAX_CONCURRENT_VERSIONED_FILE_BATCHES: usize = 4;
+
         if versioned_file_dataset_ids.is_empty() {
             return Ok(MoleculeAccessLevelEntryMap::new());
         }
 
-        // NOTE: Since there might be versioned files with no records
-        //       (for example, just created), we need to filter them out
-        //       from the later query.
-        let versioned_files_with_entries = {
-            let versioned_file_has_entries_queries = versioned_file_dataset_ids
-                .iter()
-                .map(|versioned_file_dataset_id| {
-                    indoc::formatdoc!(
-                        r#"
-                        SELECT '{versioned_file_dataset_id}' AS versioned_file_dataset_id,
-                                COUNT(*) > 0 AS has_entries
-                        FROM '{versioned_file_dataset_id}'
-                        "#
-                    )
-                })
-                .collect::<Vec<_>>();
-            let sql = indoc::formatdoc!(
-                r#"
-                SELECT versioned_file_dataset_id
-                FROM ({subquery})
-                WHERE has_entries == TRUE
-                "#,
-                subquery = versioned_file_has_entries_queries.join("UNION ALL\n")
-            );
+        let resolved_versioned_file_dataset_ids = {
+            let resolution = self.resolve_datasets(versioned_file_dataset_ids).await?;
 
-            let versioned_files_with_entries = self
-                .sql_query::<Vec<VersionedFileWithEntriesDto>>(sql)
-                .await?
-                .into_iter()
-                .map(|dto| dto.versioned_file_dataset_id)
-                .collect::<HashSet<_>>();
+            if !resolution.not_found_dataset_ids.is_empty() {
+                // NOTE: To prevent SQL errors when a dataset doesn't exist. This can happen
+                //       if the dataset was manually deleted.
+                tracing::warn!(
+                    "Some versioned files were not found (will be skipped during processing): {:?}",
+                    resolution.not_found_dataset_ids
+                );
+            }
 
-            versioned_file_dataset_ids
-                .into_iter()
-                .filter(|dataset_id| versioned_files_with_entries.contains(dataset_id))
-                .collect::<Vec<_>>()
+            resolution.resolved_dataset_ids
         };
 
-        if versioned_files_with_entries.is_empty() {
+        if resolved_versioned_file_dataset_ids.is_empty() {
             return Ok(MoleculeAccessLevelEntryMap::new());
         }
 
-        let molecule_access_level_queries = versioned_files_with_entries
-            .iter()
-            .map(|versioned_file_dataset_id| {
-                indoc::formatdoc!(
-                    r#"
-                    (SELECT '{versioned_file_dataset_id}' as versioned_file_dataset_id,
-                            molecule_access_level
-                     FROM '{versioned_file_dataset_id}'
-                     ORDER BY offset DESC
-                     LIMIT 1)
-                    "#
-                )
-            })
-            .collect::<Vec<_>>();
-        let sql = indoc::formatdoc!(
-            r#"
-            SELECT versioned_file_dataset_id,
-                   molecule_access_level
-            FROM ({subquery})
-            "#,
-            subquery = molecule_access_level_queries.join("UNION ALL\n")
-        );
+        let batch_ranges: Vec<_> = math::ranges::sub_ranges(
+            resolved_versioned_file_dataset_ids.len(),
+            VERSIONED_FILE_BATCH_SIZE,
+        )
+        .into_iter()
+        .collect();
+        let versioned_file_dataset_ids_arc = Arc::new(resolved_versioned_file_dataset_ids);
 
-        let dtos = self
-            .sql_query::<Vec<VersionedFileMoleculeAccessLevelDto>>(sql)
-            .await?;
-        let map = dtos
+        let batch_results: Vec<Vec<VersionedFileMoleculeAccessLevelDto>> =
+            futures::stream::iter(batch_ranges)
+                .map(|batch_range| {
+                    let versioned_file_dataset_ids = Arc::clone(&versioned_file_dataset_ids_arc);
+                    async move {
+                        self.query_molecule_access_level_batch(
+                            &versioned_file_dataset_ids[batch_range],
+                        )
+                        .await
+                    }
+                })
+                .buffer_unordered(MAX_CONCURRENT_VERSIONED_FILE_BATCHES)
+                .try_collect()
+                .await?;
+
+        let map = batch_results
             .into_iter()
+            .flatten()
             .map(|dto| (dto.versioned_file_dataset_id, dto.molecule_access_level))
             .collect();
 
@@ -505,6 +522,12 @@ struct VersionedFileEntryDto {
     op: u8,
     versioned_file_dataset_id: String,
     path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct VersionedFileMoleculeAccessLevelDto {
+    versioned_file_dataset_id: String,
+    molecule_access_level: MoleculeAccessLevel,
 }
 
 #[derive(GraphQLQuery)]
