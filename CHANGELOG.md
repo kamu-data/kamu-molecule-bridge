@@ -14,6 +14,10 @@ Recommendation: for ease of reading, use the following format:
 ### Fixed
 -->
 
+## [0.6.3] - 2026-07-07
+### Added
+- Base Mainnet support (#50).
+
 ## [0.6.2] - 2026-06-15
 ### Changed
 - `KamuNodeApiClient`: batched and concurrently executed SQL queries for data room versioned files 
