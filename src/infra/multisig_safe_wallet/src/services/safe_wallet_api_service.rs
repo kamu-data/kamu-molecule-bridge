@@ -41,11 +41,13 @@ impl SafeWalletApiService {
 
         match chain_id {
             // https://docs.safe.global/core-api/transaction-service-reference/mainnet
-            1 => Ok("https://safe-transaction-mainnet.safe.global"),
+            1 => Ok("https://api.safe.global/tx-service/eth"),
+            // https://docs.safe.global/core-api/transaction-service-reference/base
+            8453 => Ok("https://api.safe.global/tx-service/base"),
             // https://docs.safe.global/core-api/transaction-service-reference/base-sepolia
-            84532 => Ok("https://safe-transaction-base-sepolia.safe.global"),
+            84532 => Ok("https://api.safe.global/tx-service/basesep"),
             // https://docs.safe.global/core-api/transaction-service-reference/sepolia
-            11_155_111 => Ok("https://safe-transaction-sepolia.safe.global"),
+            11_155_111 => Ok("https://api.safe.global/tx-service/sep"),
 
             _ => bail!("Unsupported network with chain ID: {chain_id}"),
         }
