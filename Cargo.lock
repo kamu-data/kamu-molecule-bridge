@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "alloy_ext"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -3082,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "kamu-molecule-bridge"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "alloy_ext",
@@ -3111,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "kamu_node_api_client"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -3277,7 +3277,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "math"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "pretty_assertions",
  "rstest",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "molecule_contracts"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -3361,7 +3361,7 @@ dependencies = [
 
 [[package]]
 name = "molecule_ocl"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "molecule_contracts",
@@ -3373,7 +3373,7 @@ dependencies = [
 
 [[package]]
 name = "multisig"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -3383,7 +3383,7 @@ dependencies = [
 
 [[package]]
 name = "multisig_safe_wallet"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "alloy",
  "async-trait",

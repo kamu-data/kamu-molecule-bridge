@@ -14,7 +14,7 @@ Recommendation: for ease of reading, use the following format:
 ### Fixed
 -->
 
-## [Unreleased]
+## [0.7.0] - 2026-10-05
 ### Changed
 - New data rooms and file access level sync strategy that avoids vast majority of SQL queries (#51)
 - New rustc and fresh dependencies
