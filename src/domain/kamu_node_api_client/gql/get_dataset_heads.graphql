@@ -1,0 +1,8 @@
+query GetDatasetHeads($datasetRefs: [DatasetRef!]!, $skipMissing: Boolean!) {
+  datasets {
+    byRefs(datasetRefs: $datasetRefs, skipMissing: $skipMissing) {
+      id
+      head
+    }
+  }
+}

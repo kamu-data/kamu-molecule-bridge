@@ -1,7 +1,0 @@
-query AvailabilityOfDatasets($datasetIds: [DatasetID!]!) {
-  datasets {
-    byIds(datasetIds: $datasetIds, skipMissing: true) {
-      id
-    }
-  }
-}

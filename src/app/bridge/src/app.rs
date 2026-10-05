@@ -50,8 +50,9 @@ pub struct App {
 
 #[derive(Debug, Default, Serialize)]
 pub struct AppState {
-    molecule_projects_dataset_offset: Option<u64>,
     molecule_projects_last_requested_at: Option<DateTime<Utc>>,
+    molecule_projects_last_seen_offset: Option<u64>,
+    molecule_projects_last_seen_head: Option<Multihash>,
 
     on_chain_ocl_ownership_projection_map: OclOwnershipProjectionMap,
     off_chain_ocl_project_map: HashMap<OclId, OffChainMoleculeProjectProjection>,
@@ -85,15 +86,12 @@ struct MultisigState {
 #[derive(Debug, Serialize)]
 struct OffChainMoleculeProjectProjection {
     entry: MoleculeProjectEntry,
-    latest_data_room_offset: u64,
-    actual_files_map: HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
-    removed_files_map: HashMap<DatasetID, VersionedFileEntry>,
-}
 
-#[derive(Debug, Serialize)]
-struct VersionedFileEntryWithMoleculeAccessLevel {
-    entry: VersionedFileEntry,
-    molecule_access_level: MoleculeAccessLevel,
+    last_seen_data_room_offset: Option<u64>,
+    last_seen_head: Multihash,
+
+    actual_files_map: HashMap<DatasetID, VersionedFileEntry>,
+    removed_files_map: HashMap<DatasetID, VersionedFileEntry>,
 }
 
 impl App {
@@ -460,88 +458,85 @@ impl App {
         &mut self,
         app_state: &mut AppState,
     ) -> eyre::Result<ChangedVersionedFilePerProjectMap> {
-        // Project updates are based on several principles:
-        // - To query new dataset entries, we use the Ledger storage strategy advantages: for new changes,
-        //   we just need a larger offset.
-        // - In case of checking molecule_access_level changes, we also request information about existing files.
-
-        // I. Preparations.
         let mut detected_changes_map = HashMap::new();
 
-        // First, check for new files in known projects (if any).
+        // I. Fetch new project entries
+        let (molecule_projects_head, new_projects_entries) = self
+            .kamu_node_api_client
+            .get_molecule_project_entries(
+                app_state.molecule_projects_last_seen_offset,
+                app_state.molecule_projects_last_seen_head.clone(),
+                self.config.ignore_ocl_ids.as_ref(),
+            )
+            .await?;
+
+        // II. Handle retractions of existing projects.
+        for project_entry in new_projects_entries.iter().filter(|e| e.is_deleted()) {
+            let Some(retracted_project) = app_state
+                .off_chain_ocl_project_map
+                .remove(&project_entry.ocl_id)
+            else {
+                continue;
+            };
+
+            let _span = tracing::debug_span!(
+                "Retract existing project",
+                symbol = project_entry.symbol,
+                ocl_id = %project_entry.ocl_id
+            )
+            .entered();
+
+            // The retracted project may have new files in it, but since those file have not been seen by bridge yet
+            // we can simply remove access to files we track
+            let changes = retracted_project
+                .actual_files_map
+                .keys()
+                .map(|dataset_id| ChangedVersionedFile {
+                    dataset_id: dataset_id.clone(),
+                    change: DataRoomFileChange::Removed,
+                })
+                .collect::<Vec<_>>();
+
+            if !changes.is_empty() {
+                detected_changes_map.insert(project_entry.ocl_id, changes);
+            }
+        }
+
+        // III. Collect existing projects and query data rooms for updates.
         let existing_projects = app_state
             .off_chain_ocl_project_map
             .values_mut()
             .collect::<Vec<_>>();
-        let existing_data_room_dataset_ids_with_offsets = existing_projects
+        let existing_data_room_queries = existing_projects
             .iter()
-            .map(|project| DataRoomDatasetIdWithOffset {
+            .map(|project| DataRoomDatasetIncrementalQuery {
                 dataset_id: project.entry.data_room_dataset_id.clone(),
-                offset: project.latest_data_room_offset + 1,
+                last_seen_offset: project.last_seen_data_room_offset,
+                last_seen_head: Some(project.last_seen_head.clone()),
             })
             .collect::<Vec<_>>();
 
-        // Second, check for new project entries.
-        let new_projects_entries = self
+        let new_data_room_queries = new_projects_entries
+            .iter()
+            .filter(|e| !e.is_deleted())
+            .map(|project| DataRoomDatasetIncrementalQuery {
+                dataset_id: project.data_room_dataset_id.clone(),
+                last_seen_offset: None,
+                last_seen_head: None,
+            })
+            .collect::<Vec<_>>();
+
+        let mut new_file_entries_map = self
             .kamu_node_api_client
-            .get_molecule_project_entries(
-                app_state
-                    .molecule_projects_dataset_offset
-                    .map(|offset| offset + 1)
-                    .unwrap_or(0),
-                self.config.ignore_ocl_ids.as_ref(),
+            .get_versioned_files_entries_by_data_rooms(
+                new_data_room_queries
+                    .into_iter()
+                    .chain(existing_data_room_queries)
+                    .collect(),
             )
             .await?;
-        let new_data_room_dataset_ids_with_offsets = new_projects_entries
-            .iter()
-            .map(|project| DataRoomDatasetIdWithOffset {
-                dataset_id: project.data_room_dataset_id.clone(),
-                offset: 0, // NOTE: full scan
-            })
-            .collect::<Vec<_>>();
 
-        // Combine data for batch requests.
-        let data_room_dataset_ids_with_offsets = {
-            let mut ids = Vec::with_capacity(
-                new_data_room_dataset_ids_with_offsets.len()
-                    + existing_data_room_dataset_ids_with_offsets.len(),
-            );
-            ids.extend(new_data_room_dataset_ids_with_offsets);
-            ids.extend(existing_data_room_dataset_ids_with_offsets);
-            ids
-        };
-        let mut versioned_files_entries_map = self
-            .kamu_node_api_client
-            .get_versioned_files_entries_by_data_rooms(data_room_dataset_ids_with_offsets)
-            .await?;
-
-        // Build file "molecule_access_level" mapping:
-        let versioned_file_dataset_ids = {
-            let added_file_entry_dataset_ids =
-                versioned_files_entries_map
-                    .values()
-                    .fold(Vec::new(), |mut acc, entries| {
-                        acc.extend(entries.added_entities.keys().cloned());
-                        acc
-                    });
-            let existing_file_entry_dataset_ids = existing_projects
-                .iter()
-                .flat_map(|project| project.actual_files_map.keys().cloned())
-                .collect::<Vec<_>>();
-
-            let mut ids = Vec::with_capacity(
-                added_file_entry_dataset_ids.len() + existing_file_entry_dataset_ids.len(),
-            );
-            ids.extend(added_file_entry_dataset_ids);
-            ids.extend(existing_file_entry_dataset_ids);
-            ids
-        };
-        let molecule_access_levels_map = self
-            .kamu_node_api_client
-            .get_latest_molecule_access_levels_by_dataset_ids(versioned_file_dataset_ids)
-            .await?;
-
-        // II. Process existing projects.
+        // IV. Process existing projects.
         for existing_project in existing_projects {
             let project_entry = &existing_project.entry;
             let mut detected_changes = Vec::new();
@@ -553,59 +548,47 @@ impl App {
             )
             .entered();
 
-            let Some(versioned_files_entries) = versioned_files_entries_map
+            let Some(new_file_entries) = new_file_entries_map
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
             else {
                 continue;
             };
 
+            // Detect added/changed files before updating the map
             let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
-                project_entry,
-                &versioned_files_entries,
-                &molecule_access_levels_map,
+                &new_file_entries,
+                &existing_project.actual_files_map,
             );
             detected_changes.extend(changed_versioned_files);
 
-            let added_file_entries_map = build_added_file_entries_with_molecule_access_level_map(
-                versioned_files_entries.added_entities,
-                &molecule_access_levels_map,
-            );
-
-            // Update actual files ...
             existing_project.actual_files_map.retain(|dataset_id, _| {
-                versioned_files_entries
-                    .removed_entities
-                    .contains_key(dataset_id)
+                !new_file_entries.removed_entities.contains_key(dataset_id)
             });
             existing_project
                 .actual_files_map
-                .extend(added_file_entries_map);
-            // ... (and check if molecule_access_level has changed for existing files), ...
-            let changed_versioned_files = prepare_changes_based_on_changed_molecule_access_levels(
-                project_entry,
-                &existing_project.actual_files_map,
-                &molecule_access_levels_map,
-            );
-            detected_changes.extend(changed_versioned_files);
+                .extend(new_file_entries.added_entities);
 
             // ... removed files, ...
             existing_project
                 .removed_files_map
-                .extend(versioned_files_entries.removed_entities);
+                .extend(new_file_entries.removed_entities);
             // ... and offset.
-            existing_project.latest_data_room_offset =
-                versioned_files_entries.latest_data_room_offset;
+            existing_project.last_seen_data_room_offset = new_file_entries.latest_data_room_offset;
+            existing_project.last_seen_head = new_file_entries.latest_data_room_head;
 
             if !detected_changes.is_empty() {
                 detected_changes_map.insert(project_entry.ocl_id, detected_changes);
             }
         }
 
-        // III. Process new project entries.
-        // NOTE: Projects are sorted, so we can simply assign each new value.
-        let mut new_molecule_projects_dataset_offset = app_state.molecule_projects_dataset_offset;
+        let new_molecule_projects_last_seen_offset = new_projects_entries
+            .last()
+            .map(|e| e.offset)
+            .or(app_state.molecule_projects_last_seen_offset);
 
+        // V. Process new project entries.
+        // NOTE: Projects are sorted, so we can simply assign each new value.
         for project_entry in new_projects_entries {
             let mut detected_changes = Vec::new();
 
@@ -616,8 +599,6 @@ impl App {
             )
             .entered();
 
-            new_molecule_projects_dataset_offset = Some(project_entry.offset);
-
             if app_state
                 .on_chain_ocl_ownership_projection_map
                 .get(&project_entry.ocl_id)
@@ -627,7 +608,7 @@ impl App {
                 continue;
             }
 
-            let Some(versioned_files_entries) = versioned_files_entries_map
+            let Some(versioned_files_entries) = new_file_entries_map
                 // NOTE: try to extract a value from the map
                 .remove(&project_entry.data_room_dataset_id)
             else {
@@ -640,16 +621,10 @@ impl App {
             );
 
             let changed_versioned_files = prepare_changes_based_on_changed_versioned_files_entries(
-                &project_entry,
                 &versioned_files_entries,
-                &molecule_access_levels_map,
+                &HashMap::new(),
             );
             detected_changes.extend(changed_versioned_files);
-
-            let actual_files_map = build_added_file_entries_with_molecule_access_level_map(
-                versioned_files_entries.added_entities,
-                &molecule_access_levels_map,
-            );
 
             if !detected_changes.is_empty() {
                 detected_changes_map.insert(project_entry.ocl_id, detected_changes);
@@ -659,14 +634,16 @@ impl App {
                 project_entry.ocl_id,
                 OffChainMoleculeProjectProjection {
                     entry: project_entry,
-                    latest_data_room_offset: versioned_files_entries.latest_data_room_offset,
-                    actual_files_map,
+                    last_seen_data_room_offset: versioned_files_entries.latest_data_room_offset,
+                    last_seen_head: versioned_files_entries.latest_data_room_head,
+                    actual_files_map: versioned_files_entries.added_entities,
                     removed_files_map: versioned_files_entries.removed_entities,
                 },
             );
         }
 
-        app_state.molecule_projects_dataset_offset = new_molecule_projects_dataset_offset;
+        app_state.molecule_projects_last_seen_offset = new_molecule_projects_last_seen_offset;
+        app_state.molecule_projects_last_seen_head = Some(molecule_projects_head);
 
         Ok(detected_changes_map)
     }
@@ -1172,114 +1149,42 @@ struct ProjectDatasetIds<'a> {
     removed_file_dataset_ids: Vec<&'a DatasetID>,
 }
 
-// Helper methods
-fn build_added_file_entries_with_molecule_access_level_map(
-    added_entities: ChangedVersionedFiles,
-    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
-) -> HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel> {
-    added_entities
-        .into_iter()
-        .filter_map(|(dataset_id, file_entry)| {
-            let Some(access) = molecule_access_levels_map.get(&dataset_id) else {
-                tracing::warn!(
-                    "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
-                    file_entry.path,
-                );
-
-                return None;
-            };
-
-            Some((
-                dataset_id,
-                VersionedFileEntryWithMoleculeAccessLevel {
-                    entry: file_entry,
-                    molecule_access_level: *access,
-                },
-            ))
-        })
-        .collect()
-}
-
 struct GetAccountsByOclProjectResponse {
     current_owners: HashSet<Address>,
     revoke_access_accounts: HashSet<Address>,
 }
 
 fn prepare_changes_based_on_changed_versioned_files_entries(
-    project_entry: &MoleculeProjectEntry,
-    versioned_files_entries: &VersionedFilesEntries,
-    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
+    new_file_entries: &VersionedFilesEntries,
+    prior_files_map: &HashMap<DatasetID, VersionedFileEntry>,
 ) -> Vec<ChangedVersionedFile> {
-    let mut changes = Vec::with_capacity(
-        versioned_files_entries.added_entities.len()
-            + versioned_files_entries.removed_entities.len(),
+    let mut changes: Vec<ChangedVersionedFile> = Vec::with_capacity(
+        new_file_entries.added_entities.len() + new_file_entries.removed_entities.len(),
     );
 
-    for (added_dataset_id, versioned_file_entry) in &versioned_files_entries.added_entities {
-        let Some(molecule_access_levels) =
-            molecule_access_levels_map.get(added_dataset_id).copied()
-        else {
-            tracing::warn!(
-                "Skip '{}' adding file ({added_dataset_id}) because molecule_access_level is missing for it",
-                versioned_file_entry.path,
-            );
-            continue;
-        };
-
-        // NOTE: If the project is deleted, consider all files deleted as well.
-        let change = if project_entry.is_deleted() {
-            DataRoomFileChange::Removed
+    for (dataset_id, versioned_file_entry) in &new_file_entries.added_entities {
+        let change = if let Some(prior) = prior_files_map.get(dataset_id) {
+            if prior.access_level == versioned_file_entry.access_level {
+                continue;
+            }
+            DataRoomFileChange::MoleculeAccessLevelChanged {
+                from: prior.access_level,
+                to: versioned_file_entry.access_level,
+            }
         } else {
-            DataRoomFileChange::Added(molecule_access_levels)
+            DataRoomFileChange::Added(versioned_file_entry.access_level)
         };
 
         changes.push(ChangedVersionedFile {
-            dataset_id: added_dataset_id.clone(),
+            dataset_id: dataset_id.clone(),
             change,
         });
     }
-    for removed_dataset_id in versioned_files_entries.removed_entities.keys() {
+    for removed_dataset_id in new_file_entries.removed_entities.keys() {
         changes.push(ChangedVersionedFile {
             dataset_id: removed_dataset_id.clone(),
             change: DataRoomFileChange::Removed,
         });
-    }
-
-    changes
-}
-
-fn prepare_changes_based_on_changed_molecule_access_levels(
-    project_entry: &MoleculeProjectEntry,
-    project_actual_files_map: &HashMap<DatasetID, VersionedFileEntryWithMoleculeAccessLevel>,
-    molecule_access_levels_map: &MoleculeAccessLevelEntryMap,
-) -> Vec<ChangedVersionedFile> {
-    let mut changes = Vec::new();
-
-    for (dataset_id, versioned_file) in project_actual_files_map {
-        let current_access = versioned_file.molecule_access_level;
-        let Some(new_access) = molecule_access_levels_map.get(dataset_id).copied() else {
-            tracing::warn!(
-                "Skip '{}' file ({dataset_id}) because molecule_access_level is missing for it",
-                versioned_file.entry.path,
-            );
-            continue;
-        };
-
-        // NOTE: If the project is deleted, consider all files deleted as well.
-        if project_entry.is_deleted() {
-            changes.push(ChangedVersionedFile {
-                dataset_id: dataset_id.clone(),
-                change: DataRoomFileChange::Removed,
-            });
-        } else if current_access != new_access {
-            changes.push(ChangedVersionedFile {
-                dataset_id: dataset_id.clone(),
-                change: DataRoomFileChange::MoleculeAccessLevelChanged {
-                    from: current_access,
-                    to: new_access,
-                },
-            });
-        }
     }
 
     changes
@@ -1318,10 +1223,10 @@ fn get_project_dataset_ids(
     let mut owner_file_dataset_ids = Vec::new();
     let mut holder_file_dataset_ids = Vec::new();
 
-    for (dataset_id, entry_with_access_level) in &off_chain_project.actual_files_map {
+    for (dataset_id, entry) in &off_chain_project.actual_files_map {
         partition_dataset_id_by_molecule_access_level(
             dataset_id,
-            entry_with_access_level.molecule_access_level,
+            entry.access_level,
             &mut owner_file_dataset_ids,
             &mut holder_file_dataset_ids,
         );

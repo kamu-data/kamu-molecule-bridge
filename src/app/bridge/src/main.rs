@@ -151,8 +151,6 @@ fn build_kamu_node_client(
         metrics.kamu_gql_errors_num_total.clone(),
         config.data_room_batch_size,
         config.max_concurrent_data_room_batches,
-        config.versioned_file_batch_size,
-        config.max_concurrent_versioned_file_batches,
         dry_run,
     ))
 }

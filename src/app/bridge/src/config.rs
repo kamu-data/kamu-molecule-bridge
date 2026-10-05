@@ -50,16 +50,6 @@ pub struct Config {
     #[config(default = 4)]
     pub max_concurrent_data_room_batches: usize,
 
-    /// Number of versioned file datasets queried per SQL batch
-    #[config(env = "KAMU_MOLECULE_BRIDGE_VERSIONED_FILE_BATCH_SIZE")]
-    #[config(default = 128)]
-    pub versioned_file_batch_size: usize,
-
-    /// Maximum number of concurrent versioned file batch queries
-    #[config(env = "KAMU_MOLECULE_BRIDGE_MAX_CONCURRENT_VERSIONED_FILE_BATCHES")]
-    #[config(default = 4)]
-    pub max_concurrent_versioned_file_batches: usize,
-
     /// List of OCL ids that should be ignored
     #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_OCL_IDS", parse_env = confique::env::parse::list_by_comma)]
     pub ignore_ocl_ids: Option<std::collections::HashSet<String>>,

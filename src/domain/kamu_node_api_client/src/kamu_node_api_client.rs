@@ -16,19 +16,15 @@ use crate::did_phk::DidPhk;
 pub trait KamuNodeApiClient {
     async fn get_molecule_project_entries<'a>(
         &self,
-        offset: u64,
+        last_seen_offset: Option<u64>,
+        last_seen_head: Option<Multihash>,
         maybe_ignore_ocl_ids: Option<&'a HashSet<String>>,
-    ) -> eyre::Result<Vec<MoleculeProjectEntry>>;
+    ) -> eyre::Result<(Multihash, Vec<MoleculeProjectEntry>)>;
 
     async fn get_versioned_files_entries_by_data_rooms(
         &self,
-        data_rooms: Vec<DataRoomDatasetIdWithOffset>,
+        data_rooms: Vec<DataRoomDatasetIncrementalQuery>,
     ) -> eyre::Result<VersionedFilesEntriesMap>;
-
-    async fn get_latest_molecule_access_levels_by_dataset_ids(
-        &self,
-        versioned_file_dataset_ids: Vec<String>,
-    ) -> eyre::Result<MoleculeAccessLevelEntryMap>;
 
     async fn create_wallet_accounts(&self, did_pkhs: Vec<DidPhk>) -> eyre::Result<()>;
 
@@ -37,14 +33,18 @@ pub trait KamuNodeApiClient {
         operations: Vec<AccountDatasetRelationOperation>,
     ) -> eyre::Result<()>;
 
-    async fn resolve_datasets(
+    async fn get_dataset_heads(
         &self,
         dataset_ids: Vec<DatasetID>,
+        skip_missing: bool,
     ) -> eyre::Result<DatasetResolution>;
 }
 
 pub type DatasetID = String;
+pub type DatasetRef = String;
 pub type AccountID = String;
+pub type Multihash = String;
+pub type DidPkh = String;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -90,9 +90,11 @@ impl MoleculeProjectEntry {
 pub type VersionedFilesEntriesMap =
     HashMap</* data_room_dataset_id */ DatasetID, VersionedFilesEntries>;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VersionedFilesEntries {
-    pub latest_data_room_offset: u64,
+    pub latest_data_room_offset: Option<u64>,
+    pub latest_data_room_head: String,
+
     pub added_entities: ChangedVersionedFiles,
     pub removed_entities: ChangedVersionedFiles,
 }
@@ -103,10 +105,8 @@ pub type ChangedVersionedFiles = HashMap<DatasetID, VersionedFileEntry>;
 pub struct VersionedFileEntry {
     pub offset: u64,
     pub path: String,
+    pub access_level: MoleculeAccessLevel,
 }
-
-pub type MoleculeAccessLevelEntryMap =
-    HashMap</* versioned_file_dataset_id */ DatasetID, MoleculeAccessLevel>;
 
 // https://discord.com/channels/@me/1364902681159794688/1394272024746135644
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
@@ -124,9 +124,10 @@ pub enum MoleculeAccessLevel {
 }
 
 #[derive(Debug)]
-pub struct DataRoomDatasetIdWithOffset {
+pub struct DataRoomDatasetIncrementalQuery {
     pub dataset_id: DatasetID,
-    pub offset: u64,
+    pub last_seen_offset: Option<u64>,
+    pub last_seen_head: Option<Multihash>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -176,6 +177,6 @@ pub enum DatasetAccessRole {
 
 #[derive(Debug)]
 pub struct DatasetResolution {
-    pub resolved_dataset_ids: Vec<DatasetID>,
-    pub not_found_dataset_ids: Vec<DatasetID>,
+    pub resolved: HashMap<DatasetID, Multihash>,
+    pub not_found: HashSet<DatasetID>,
 }
