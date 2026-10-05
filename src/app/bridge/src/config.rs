@@ -20,6 +20,7 @@ pub struct Config {
     #[config(env = "KAMU_MOLECULE_BRIDGE_MOLECULE_PROJECTS_DATASET_ALIAS")]
     pub molecule_projects_dataset_alias: String,
 
+    /// Minimal period of time before fetching projects and data room updates from kamu node
     #[config(env = "KAMU_MOLECULE_BRIDGE_MOLECULE_PROJECTS_LOADING_INTERVAL_IN_SECS")]
     pub molecule_projects_loading_interval_in_secs: u64,
 
@@ -35,8 +36,29 @@ pub struct Config {
     #[config(env = "KAMU_MOLECULE_BRIDGE_LABNFT_CONTRACT_BIRTH_BLOCK")]
     pub labnft_contract_birth_block: u64,
 
+    /// Period between the main update loop runs (includes chain indexing and all other syncs)
     #[config(env = "KAMU_MOLECULE_BRIDGE_INDEXING_DELAY_BETWEEN_ITERATIONS_IN_SECS")]
     pub indexing_delay_between_iterations_in_secs: u64,
+
+    /// Number of data rooms queried per SQL batch
+    #[config(env = "KAMU_MOLECULE_BRIDGE_DATA_ROOM_BATCH_SIZE")]
+    #[config(default = 128)]
+    pub data_room_batch_size: usize,
+
+    /// Maximum number of concurrent data room batch queries
+    #[config(env = "KAMU_MOLECULE_BRIDGE_MAX_CONCURRENT_DATA_ROOM_BATCHES")]
+    #[config(default = 4)]
+    pub max_concurrent_data_room_batches: usize,
+
+    /// Number of versioned file datasets queried per SQL batch
+    #[config(env = "KAMU_MOLECULE_BRIDGE_VERSIONED_FILE_BATCH_SIZE")]
+    #[config(default = 128)]
+    pub versioned_file_batch_size: usize,
+
+    /// Maximum number of concurrent versioned file batch queries
+    #[config(env = "KAMU_MOLECULE_BRIDGE_MAX_CONCURRENT_VERSIONED_FILE_BATCHES")]
+    #[config(default = 4)]
+    pub max_concurrent_versioned_file_batches: usize,
 
     /// List of OCL ids that should be ignored
     #[config(env = "KAMU_MOLECULE_BRIDGE_IGNORE_OCL_IDS", parse_env = confique::env::parse::list_by_comma)]

@@ -22,6 +22,11 @@ pub struct KamuNodeApiClientImpl {
     metric_gql_requests_num_total: prometheus::IntCounter,
     metric_gql_errors_num_total: prometheus::IntCounter,
 
+    data_room_batch_size: NonZeroUsize,
+    max_concurrent_data_room_batches: usize,
+    versioned_file_batch_size: NonZeroUsize,
+    max_concurrent_versioned_file_batches: usize,
+
     dry_run: bool,
 }
 
@@ -32,6 +37,10 @@ impl KamuNodeApiClientImpl {
         molecule_projects_dataset_alias: String,
         metric_gql_requests_num_total: prometheus::IntCounter,
         metric_gql_errors_num_total: prometheus::IntCounter,
+        data_room_batch_size: usize,
+        max_concurrent_data_room_batches: usize,
+        versioned_file_batch_size: usize,
+        max_concurrent_versioned_file_batches: usize,
         dry_run: bool,
     ) -> Self {
         let http_client = {
@@ -51,6 +60,12 @@ impl KamuNodeApiClientImpl {
             molecule_projects_dataset_alias,
             metric_gql_requests_num_total,
             metric_gql_errors_num_total,
+            data_room_batch_size: NonZeroUsize::new(data_room_batch_size)
+                .expect("data_room_batch_size must be non-zero"),
+            max_concurrent_data_room_batches,
+            versioned_file_batch_size: NonZeroUsize::new(versioned_file_batch_size)
+                .expect("versioned_file_batch_size must be non-zero"),
+            max_concurrent_versioned_file_batches,
             dry_run,
         }
     }
@@ -246,9 +261,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<VersionedFilesEntriesMap> {
         use futures::stream::{StreamExt, TryStreamExt};
 
-        const DATA_ROOM_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
-        const MAX_CONCURRENT_DATA_ROOM_BATCHES: usize = 4;
-
         if data_rooms.is_empty() {
             return Ok(VersionedFilesEntriesMap::new());
         }
@@ -281,7 +293,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
             return Ok(VersionedFilesEntriesMap::new());
         }
 
-        let batch_ranges: Vec<_> = math::ranges::sub_ranges(data_rooms.len(), DATA_ROOM_BATCH_SIZE)
+        let batch_ranges: Vec<_> = math::ranges::sub_ranges(data_rooms.len(), self.data_room_batch_size)
             .into_iter()
             .collect();
         let data_rooms_arc = Arc::new(data_rooms);
@@ -295,7 +307,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                         .await
                 }
             })
-            .buffer_unordered(MAX_CONCURRENT_DATA_ROOM_BATCHES)
+            .buffer_unordered(self.max_concurrent_data_room_batches)
             .try_collect()
             .await?;
 
@@ -347,9 +359,6 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
     ) -> eyre::Result<MoleculeAccessLevelEntryMap> {
         use futures::stream::{StreamExt, TryStreamExt};
 
-        const VERSIONED_FILE_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
-        const MAX_CONCURRENT_VERSIONED_FILE_BATCHES: usize = 4;
-
         if versioned_file_dataset_ids.is_empty() {
             return Ok(MoleculeAccessLevelEntryMap::new());
         }
@@ -375,7 +384,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
         let batch_ranges: Vec<_> = math::ranges::sub_ranges(
             resolved_versioned_file_dataset_ids.len(),
-            VERSIONED_FILE_BATCH_SIZE,
+            self.versioned_file_batch_size,
         )
         .into_iter()
         .collect();
@@ -392,7 +401,7 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
                         .await
                     }
                 })
-                .buffer_unordered(MAX_CONCURRENT_VERSIONED_FILE_BATCHES)
+                .buffer_unordered(self.max_concurrent_versioned_file_batches)
                 .try_collect()
                 .await?;
 
