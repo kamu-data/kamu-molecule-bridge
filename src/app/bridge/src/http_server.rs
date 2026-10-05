@@ -48,8 +48,7 @@ pub async fn health_handler(
 
 pub async fn state_handler(
     axum::extract::Extension(state_requester): axum::extract::Extension<Arc<dyn StateRequester>>,
-) -> Result<axum::Json<serde_json::Value>, ()> {
+) -> axum::Json<serde_json::Value> {
     let state_json = state_requester.request_as_json().await;
-
-    Ok(axum::Json(state_json))
+    axum::Json(state_json)
 }

@@ -1,12 +1,14 @@
 [bans]
 multiple-versions = "deny"
 skip-tree = [
-    { name = "hashbrown" },
-    { name = "rand" }, # Waiting for alloy and other crates to upgrade to 0.9+
-    { name = "thiserror" },
-    { name = "digest" },
+    { name = "base64" },
     { name = "convert_case" },
-    { name = "itertools" },
+    { name = "darling" },
+    { name = "digest" },
+    { name = "hashbrown" },
+    { name = "miniz_oxide" },
+    { name = "rand" },         # Waiting for alloy and other crates to upgrade to 0.9+
+    { name = "thiserror" },
 ]
 
 # We should always specify version ranges
@@ -60,7 +62,4 @@ ignore = [
     # paste (Unmaintained)
     # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
-    # proc-macro-error2 (Unmaintained)
-    # https://rustsec.org/advisories/RUSTSEC-2026-0173
-    "RUSTSEC-2026-0173",
 ]

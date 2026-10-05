@@ -14,6 +14,11 @@ Recommendation: for ease of reading, use the following format:
 ### Fixed
 -->
 
+## [Unreleased]
+### Changed
+- New data rooms and file access level sync strategy that avoids vast majority of SQL queries (#51)
+- New rustc and fresh dependencies
+
 ## [0.6.3] - 2026-07-07
 ### Added
 - Base Mainnet support (#50).
