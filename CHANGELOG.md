@@ -14,6 +14,10 @@ Recommendation: for ease of reading, use the following format:
 ### Fixed
 -->
 
+## [0.7.1] - 2026-10-05
+### Fixed
+- Handle `molecule_access_level: null` in pre V2 API data rooms
+
 ## [0.7.0] - 2026-10-05
 ### Changed
 - New data rooms and file access level sync strategy that avoids vast majority of SQL queries (#51)

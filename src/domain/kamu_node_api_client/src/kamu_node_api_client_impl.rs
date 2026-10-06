@@ -322,11 +322,17 @@ impl KamuNodeApiClient for KamuNodeApiClientImpl {
 
             entries.latest_data_room_offset = Some(dto.offset);
 
+            // Records that predate the molecule_access_level column have null here;
+            // they are superseded by newer records with proper access levels.
+            let Some(access_level) = dto.molecule_access_level else {
+                continue;
+            };
+
             let dataset_id = dto.r#ref;
             let entry = VersionedFileEntry {
                 offset: dto.offset,
                 path: dto.path,
-                access_level: dto.molecule_access_level,
+                access_level,
             };
 
             let op: OperationType = dto.op.try_into()?;
@@ -472,7 +478,8 @@ struct VersionedFileEntryDto {
     offset: u64,
     op: u8,
     path: String,
-    molecule_access_level: MoleculeAccessLevel,
+    // Pre v2 API empty files were possible
+    molecule_access_level: Option<MoleculeAccessLevel>,
 }
 
 #[derive(GraphQLQuery)]
